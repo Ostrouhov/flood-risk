@@ -47,7 +47,7 @@ jobs:
           version: "0.4.*"
 
       - name: Generate requirements.lock
-        run: uv pip compile pyproject.toml -o requirements.lock
+        run: uv pip compile pyproject.toml --python-version 3.11 -o requirements.lock
 
       - name: Build app image
         run: docker build -t floodrisk:ci .

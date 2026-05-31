@@ -58,9 +58,9 @@ install-ml:
 
 .PHONY: lock
 lock:
-	$(UV) pip compile pyproject.toml -o requirements.lock
-	$(UV) pip compile pyproject.toml --extra data -o requirements-data.lock
-	$(UV) pip compile pyproject.toml --extra ml -o requirements-ml.lock
+	$(UV) pip compile pyproject.toml --python-version 3.11 -o requirements.lock
+	$(UV) pip compile pyproject.toml --python-version 3.11 --extra data -o requirements-data.lock
+	$(UV) pip compile pyproject.toml --python-version 3.11 --extra ml -o requirements-ml.lock
 
 # ──────────────── БД ────────────────
 
