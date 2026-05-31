@@ -16,6 +16,7 @@ import numpy as np
 import rasterio
 from sqlmodel import Session
 
+from floodrisk import feature_transform as ft
 from floodrisk.db.models import Run
 from floodrisk.db.repositories import (
     get_model_version,
@@ -53,11 +54,7 @@ def _load_norm_stats(config_path: str) -> tuple[np.ndarray, np.ndarray]:
     import yaml
 
     cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
-    stats_path = settings.project_root / cfg["data"]["norm_stats"]
-    stats = json.loads(stats_path.read_text(encoding="utf-8"))
-    mean = np.asarray(stats["mean"], dtype="float32").reshape(-1, 1, 1)
-    std = np.asarray(stats["std"], dtype="float32").reshape(-1, 1, 1)
-    return mean, std
+    return ft.load_stats(settings.project_root / cfg["data"]["norm_stats"])
 
 
 def _resolve_model(session: Session, model_version: str):
@@ -157,7 +154,7 @@ def predict(
     fdata, transform, crs, _native_bounds = feat.read_feature_window(bbox, stack)
 
     mean, std = _load_norm_stats(rec.config_path)
-    fnorm = ((fdata - mean) / std).astype("float32")
+    fnorm = ft.transform(fdata, mean, std)
 
     model = load_model(rec.name, rec.version, rec.checkpoint_path)
     base_prob = feat.predict_sliding(fnorm, model.predict_tile)

@@ -31,7 +31,22 @@
     ]);
   }
 
-  const state = { map, currentOverlay: null, currentRunId: null };
+  const state = {
+    map,
+    currentOverlay: null,
+    currentRunId: null,
+    attributionOverlay: null,
+    mode: "view",
+  };
+
+  state.setMode = function (m) {
+    state.mode = m;
+    window.dispatchEvent(new CustomEvent("mode-changed", { detail: m }));
+    if (m === "view" && state.attributionOverlay) {
+      map.removeLayer(state.attributionOverlay);
+      state.attributionOverlay = null;
+    }
+  };
 
   function centerBbox() {
     const [w, s, e, n] = coverage;
@@ -77,29 +92,65 @@
     });
   };
 
+  map.on("click", function (e) {
+    if (state.mode !== "explain" || !state.currentRunId) return;
+    htmx.ajax("POST", "/ui/explain", {
+      target: "#explain-panel",
+      swap: "innerHTML",
+      values: { run_id: state.currentRunId, lat: e.latlng.lat, lon: e.latlng.lng },
+    });
+  });
+
+  function bbox2bounds(b) {
+    // [S, W, N, E] → Leaflet [[S,W],[N,E]]
+    return [
+      [b[0], b[1]],
+      [b[2], b[3]],
+    ];
+  }
+
   document.body.addEventListener("htmx:afterSwap", function (evt) {
-    if (!evt.detail.target || evt.detail.target.id !== "prediction-data") return;
-    const el = document.getElementById("prediction-data");
-    if (!el) return;
-    const png = el.dataset.pngUrl;
-    const boundsStr = el.dataset.bounds;
-    if (state.currentOverlay) {
-      map.removeLayer(state.currentOverlay);
-      state.currentOverlay = null;
+    const tid = evt.detail.target && evt.detail.target.id;
+
+    if (tid === "prediction-data") {
+      const el = document.getElementById("prediction-data");
+      const png = el.dataset.pngUrl;
+      const boundsStr = el.dataset.bounds;
+      if (state.currentOverlay) {
+        map.removeLayer(state.currentOverlay);
+        state.currentOverlay = null;
+      }
+      if (png && boundsStr) {
+        const bounds = bbox2bounds(JSON.parse(boundsStr));
+        state.currentOverlay = L.imageOverlay(png, bounds, { opacity: 0.7 }).addTo(map);
+        map.fitBounds(bounds);
+      }
+      state.currentRunId = el.dataset.runId || null;
+      const btn = document.getElementById("export-btn");
+      if (btn) btn.disabled = !state.currentRunId;
+      document.getElementById("export-result").innerHTML = "";
     }
-    if (png && boundsStr) {
-      const b = JSON.parse(boundsStr); // [S, W, N, E]
-      const bounds = [
-        [b[0], b[1]],
-        [b[2], b[3]],
-      ];
-      state.currentOverlay = L.imageOverlay(png, bounds, { opacity: 0.7 }).addTo(map);
-      map.fitBounds(bounds);
+
+    if (tid === "explain-panel") {
+      const data = document.getElementById("explanation-data");
+      if (!data) return;
+      if (state.attributionOverlay) {
+        map.removeLayer(state.attributionOverlay);
+        state.attributionOverlay = null;
+      }
+      let layers = [];
+      try {
+        layers = JSON.parse(data.dataset.attributionLayers || "[]");
+      } catch (e) {
+        layers = [];
+      }
+      if (layers.length) {
+        const top = layers[0]; // слой важности топ-признака
+        state.attributionOverlay = L.imageOverlay(top.png_url, bbox2bounds(top.bounds_wgs84), {
+          opacity: 0.6,
+        }).addTo(map);
+      }
     }
-    state.currentRunId = el.dataset.runId || null;
-    const btn = document.getElementById("export-btn");
-    if (btn) btn.disabled = !state.currentRunId;
-    document.getElementById("export-result").innerHTML = "";
   });
 
   document.body.addEventListener("download-ready", function (e) {

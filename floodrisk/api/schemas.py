@@ -52,6 +52,20 @@ class ExportResponse(BaseModel):
     export_url: str
 
 
+class ExplainRequest(BaseModel):
+    """См. SRS §8.1. Точка клика в EPSG:4326."""
+
+    run_id: str
+    lat: float
+    lon: float
+
+
+class ExplainResponse(BaseModel):
+    explanation_id: int
+    ranking: list[dict]
+    attribution_layers: list[dict]
+
+
 class RunOut(BaseModel):
     run_id: str
     bbox: list[float]

@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="flex h-full w-full flex-col" x-data="{ loading: false }"
-     @predict-start.window="loading = true" @predict-end.window="loading = false">
+<div class="flex h-full w-full flex-col" x-data="{ loading: false, mode: 'view' }"
+     @predict-start.window="loading = true" @predict-end.window="loading = false"
+     @mode-changed.window="mode = $event.detail">
   <header class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
     <h1 class="text-lg font-semibold">floodrisk <span class="text-xs font-normal text-slate-500">прототип</span></h1>
     <div class="text-xs text-slate-500">модель: <span class="font-mono">{{ model_label }}</span></div>
@@ -66,6 +67,22 @@
           class="w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
           onclick="floodrisk.exportRun()" disabled>Экспорт ZIP</button>
         <div id="export-result" class="mt-2 text-sm"></div>
+      </section>
+
+      <section>
+        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Режим</h2>
+        <div class="flex gap-2 text-sm">
+          <button class="flex-1 rounded border border-slate-300 px-2 py-1"
+            :class="mode === 'view' ? 'bg-slate-900 text-white' : 'hover:bg-slate-100'"
+            @click="floodrisk.setMode('view')">Просмотр</button>
+          <button class="flex-1 rounded border border-slate-300 px-2 py-1"
+            :class="mode === 'explain' ? 'bg-slate-900 text-white' : 'hover:bg-slate-100'"
+            @click="floodrisk.setMode('explain')">Объяснение</button>
+        </div>
+        <p class="mt-1 text-xs text-slate-400" x-show="mode === 'explain'">
+          Кликните по карте, чтобы увидеть важность признаков в точке.
+        </p>
+        <div id="explain-panel" class="mt-2" x-show="mode === 'explain'"></div>
       </section>
     </aside>
 

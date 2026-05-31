@@ -1,10 +1,12 @@
 # Конфиг тренировки U-Net v1. См. SRS §7.8.
-# Этап 2: датасет v1 = 7 каналов рельефа (БЕЗ метео); обучение на CPU.
+# Датасет v1: 7 сырых каналов рельефа (БЕЗ метео) → feature_transform → 18 каналов входа:
+# 5 z-score (dem,slope,curvature,twi,dist_to_water) + sin/cos(aspect) + one-hot worldcover(11).
+# Обучение на CPU.
 
 model:
   arch: unet
   encoder: resnet34
-  in_channels: 7            # dem, slope, aspect, curvature, twi, worldcover, dist_to_water
+  in_channels: 18           # см. floodrisk.feature_transform.out_channels()
   out_channels: 1
 
 data:

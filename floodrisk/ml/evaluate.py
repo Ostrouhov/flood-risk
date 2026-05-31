@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
+from floodrisk import feature_transform as ft
 from floodrisk.ml import config as cfgmod
 from floodrisk.ml import metrics as M
 from floodrisk.ml.data import _read_label, _read_tile, load_norm_stats, tile_paths
@@ -35,8 +36,8 @@ def _unet_predictions(cfg: dict, split: str) -> tuple[list[np.ndarray], list[np.
     probs: list[np.ndarray] = []
     with torch.no_grad():
         for _tid, tpath, lpath in tile_paths(cfg, split):
-            x = ((_read_tile(tpath) - mean) / std)[None]  # [1,7,H,W]
-            logit = model(torch.from_numpy(x.astype("float32")))
+            x = ft.transform(_read_tile(tpath), mean, std)[None]  # [1,C,H,W]
+            logit = model(torch.from_numpy(x))
             prob = torch.sigmoid(logit)[0, 0].numpy().reshape(-1)
             trues.append(_read_label(lpath).reshape(-1))
             probs.append(prob)
@@ -51,7 +52,8 @@ def _baseline_predictions(cfg: dict, split: str) -> tuple[list[np.ndarray], list
     trues: list[np.ndarray] = []
     probs: list[np.ndarray] = []
     for _tid, tpath, lpath in tile_paths(cfg, split):
-        x = ((_read_tile(tpath) - mean) / std).reshape(7, -1).T  # [HW,7]
+        norm = ft.transform(_read_tile(tpath), mean, std)
+        x = norm.reshape(norm.shape[0], -1).T  # [HW,C]
         prob = clf.predict_proba(x)[:, 1]
         trues.append(_read_label(lpath).reshape(-1))
         probs.append(prob)
@@ -135,7 +137,10 @@ def run_eval(unet_config: str, baseline_config: str, out_path: str) -> int:
 
     lines: list[str] = []
     lines.append("# Сравнение моделей v1 — U-Net vs baseline (FR-7)\n")
-    lines.append("Датасет: `data/processed/v1` (Тулун-2019, 7 каналов рельефа). ")
+    lines.append(
+        "Датасет: `data/processed/v1` (Тулун-2019). Вход модели — 18 каналов "
+        "(feature_transform: 5 z-score + sin/cos aspect + one-hot worldcover). "
+    )
     lines.append("Test-split: 32 тайла. Метрики — попиксельно по пулу test.\n")
     lines.append("Bootstrap-CI 95%: 1000 ресэмплов **по тайлам** (OQ-6); ")
     lines.append("тайл — независимая единица (пиксели внутри коррелированы).\n\n")

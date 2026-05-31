@@ -19,6 +19,8 @@ import rasterio
 import torch
 from torch.utils.data import DataLoader, Dataset
 
+from floodrisk import feature_transform as ft
+
 try:  # Lightning опционален для чистой загрузки данных
     import pytorch_lightning as pl
 
@@ -54,30 +56,11 @@ def tile_paths(cfg: dict, split: str) -> list[tuple[str, Path, Path]]:
 
 
 def compute_norm_stats(cfg: dict) -> dict:
-    """Per-channel mean/std по train-split. Сохраняет в norm_stats.json."""
+    """mean/std непрерывных каналов по train-split (для feature_transform). → norm_stats.json."""
     items = tile_paths(cfg, "train")
     if not items:
         raise RuntimeError("train-split пуст — нечего нормировать")
-    n_ch = _read_tile(items[0][1]).shape[0]
-    # Накопление через сумму и сумму квадратов (по всем пикселям всех train-тайлов).
-    csum = np.zeros(n_ch, dtype="float64")
-    csqsum = np.zeros(n_ch, dtype="float64")
-    count = 0
-    for _tid, tpath, _lpath in items:
-        arr = _read_tile(tpath)  # [C, H, W]
-        flat = arr.reshape(arr.shape[0], -1)
-        csum += flat.sum(axis=1)
-        csqsum += (flat.astype("float64") ** 2).sum(axis=1)
-        count += flat.shape[1]
-    mean = csum / count
-    var = np.maximum(csqsum / count - mean**2, 1e-12)
-    std = np.sqrt(var)
-    stats = {
-        "channels": int(n_ch),
-        "count_pixels": int(count),
-        "mean": mean.tolist(),
-        "std": std.tolist(),
-    }
+    stats = ft.compute_stats(_read_tile(tpath) for _tid, tpath, _lpath in items)
     out_path = Path(cfg["data"]["norm_stats"])
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(stats, indent=2), encoding="utf-8")
@@ -85,10 +68,7 @@ def compute_norm_stats(cfg: dict) -> dict:
 
 
 def load_norm_stats(cfg: dict) -> tuple[np.ndarray, np.ndarray]:
-    stats = json.loads(Path(cfg["data"]["norm_stats"]).read_text(encoding="utf-8"))
-    mean = np.asarray(stats["mean"], dtype="float32").reshape(-1, 1, 1)
-    std = np.asarray(stats["std"], dtype="float32").reshape(-1, 1, 1)
-    return mean, std
+    return ft.load_stats(cfg["data"]["norm_stats"])
 
 
 def _augment(x: np.ndarray, y: np.ndarray, names: list[str], rng: np.random.Generator):
@@ -119,8 +99,7 @@ class FloodTileDataset(Dataset):
         self._x: list[np.ndarray] = []
         self._y: list[np.ndarray] = []
         for _tid, tpath, lpath in self.items:
-            x = (_read_tile(tpath) - self.mean) / self.std
-            self._x.append(x.astype("float32"))
+            self._x.append(ft.transform(_read_tile(tpath), self.mean, self.std))
             self._y.append(_read_label(lpath))
 
     def __len__(self) -> int:

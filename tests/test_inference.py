@@ -53,14 +53,18 @@ def inference_env(tmp_path, monkeypatch):
     ) as dst:
         dst.write(data)
 
+    from floodrisk.feature_transform import CONTINUOUS, out_channels
+
+    n_cont = len(CONTINUOUS)
     norm = tmp_path / "norm_stats.json"
-    norm.write_text(json.dumps({"channels": 7, "mean": [0.0] * 7, "std": [1.0] * 7}))
+    norm.write_text(json.dumps({"mean": [0.0] * n_cont, "std": [1.0] * n_cont}))
     cfg = tmp_path / "config.yaml"
     cfg.write_text(f"data:\n  norm_stats: {norm.as_posix()}\n", encoding="utf-8")
 
-    # Крошечная TorchScript-модель 7→1 (любой H×W), грузится чистым torch.
-    net = torch.nn.Conv2d(7, 1, kernel_size=1)
-    traced = torch.jit.trace(net, torch.zeros(1, 7, 256, 256))
+    # Крошечная TorchScript-модель C→1 (вход = feature_transform.out_channels()), чистый torch.
+    c_in = out_channels()
+    net = torch.nn.Conv2d(c_in, 1, kernel_size=1)
+    traced = torch.jit.trace(net, torch.zeros(1, c_in, 256, 256))
     model_path = tmp_path / "model.ts.pt"
     traced.save(str(model_path))
 
@@ -232,3 +236,56 @@ def test_ui_export_triggers_download(client, inference_env):
     assert r.status_code == 200
     assert "Скачать ZIP" in r.text
     assert "download-ready" in r.headers.get("HX-Trigger", "")
+
+
+# ── Этап 5: объяснимость (FR-10) ──────────────────────────────────────────────
+
+
+def _center(cov: list[float]) -> tuple[float, float]:
+    w, s, e, n = cov
+    return (s + n) / 2, (w + e) / 2  # lat, lon
+
+
+def _make_run(client, cov) -> str:
+    return client.post(
+        "/api/predict",
+        json={"bbox": _inner_bbox(cov), "scenario_id": "p100y", "model_version": "unet-test"},
+    ).json()["run_id"]
+
+
+def test_explain_returns_ranking_and_attributions(client, inference_env):
+    from floodrisk.settings import settings
+
+    rid = _make_run(client, inference_env["coverage"])
+    lat, lon = _center(inference_env["coverage"])
+    r = client.post("/api/explain", json={"run_id": rid, "lat": lat, "lon": lon})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert isinstance(body["explanation_id"], int)
+    assert len(body["ranking"]) == 5  # top-5 из 7 признаков
+    assert all({"feature", "label", "importance"} <= set(item) for item in body["ranking"])
+    assert len(body["attribution_layers"]) == 5  # U-Net → растры атрибуции
+    top = body["attribution_layers"][0]
+    assert top["png_url"].endswith(".png")
+    assert (settings.runs_dir / rid / "attribution" / f"{top['feature']}.png").exists()
+
+
+def test_explain_unknown_run_404(client, inference_env):
+    lat, lon = _center(inference_env["coverage"])
+    r = client.post("/api/explain", json={"run_id": "ghost", "lat": lat, "lon": lon})
+    assert r.status_code == 404
+
+
+def test_explain_point_out_of_coverage_422(client, inference_env):
+    rid = _make_run(client, inference_env["coverage"])
+    r = client.post("/api/explain", json={"run_id": rid, "lat": 0.0, "lon": 0.0})
+    assert r.status_code == 422
+
+
+def test_ui_explain_returns_panel(client, inference_env):
+    rid = _make_run(client, inference_env["coverage"])
+    lat, lon = _center(inference_env["coverage"])
+    r = client.post("/ui/explain", data={"run_id": rid, "lat": lat, "lon": lon})
+    assert r.status_code == 200
+    assert "Важность признаков" in r.text
+    assert 'id="explanation-data"' in r.text

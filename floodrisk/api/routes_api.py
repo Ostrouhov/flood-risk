@@ -9,6 +9,8 @@ from sqlmodel import Session
 
 from floodrisk import __version__
 from floodrisk.api.schemas import (
+    ExplainRequest,
+    ExplainResponse,
     ExportResponse,
     HealthResponse,
     ModelVersionOut,
@@ -114,9 +116,14 @@ def export_run(run_id: str, session: Session = Depends(get_session)):
     return ExportResponse(export_url=url)
 
 
-@router.post("/explain", status_code=501)
-def explain() -> dict:
-    raise HTTPException(
-        status_code=501,
-        detail="not_implemented: explain будет добавлен на Этапе 5 (см. SRS §17)",
-    )
+@router.post("/explain", response_model=ExplainResponse)
+def explain(req: ExplainRequest, session: Session = Depends(get_session)):
+    """Важность признаков в точке клика. См. SRS §8.1, §7.7, FR-10."""
+    from floodrisk.inference import explain as explain_mod
+
+    try:
+        return explain_mod.explain(session, req.run_id, req.lat, req.lon)
+    except explain_mod.RunNotFound:
+        return JSONResponse(status_code=404, content={"error": "run_not_found"})
+    except explain_mod.PointOutOfCoverage:
+        return JSONResponse(status_code=422, content={"error": "point_out_of_coverage"})

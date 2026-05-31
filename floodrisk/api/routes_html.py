@@ -87,6 +87,37 @@ def ui_predict(
     )
 
 
+@router.post("/ui/explain", response_class=HTMLResponse)
+def ui_explain(
+    request: Request,
+    run_id: str = Form(...),
+    lat: float = Form(...),
+    lon: float = Form(...),
+    session: Session = Depends(get_session),
+) -> HTMLResponse:
+    from floodrisk.inference import explain as explain_mod
+
+    try:
+        res = explain_mod.explain(session, run_id, lat, lon)
+    except explain_mod.RunNotFound:
+        return templates.TemplateResponse(
+            request, "fragments/predict_error.html", {"message": "сначала постройте карту"}
+        )
+    except explain_mod.PointOutOfCoverage:
+        return templates.TemplateResponse(
+            request, "fragments/predict_error.html", {"message": "точка вне зоны покрытия"}
+        )
+    return templates.TemplateResponse(
+        request,
+        "fragments/explanation_panel.html",
+        {
+            "explanation_id": res["explanation_id"],
+            "ranking": res["ranking"],
+            "attribution_layers": res["attribution_layers"],
+        },
+    )
+
+
 @router.post("/ui/export", response_class=HTMLResponse)
 def ui_export(
     request: Request,

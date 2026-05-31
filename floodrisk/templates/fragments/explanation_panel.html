@@ -1,4 +1,4 @@
-{# Панель режима «Объяснение»: топ-N признаков + переключатели слоёв важности. Этап 5. #}
+{# Панель режима «Объяснение»: топ-N признаков + данные слоёв важности для JS. SRS §7.7, §9.2. #}
 <div
   id="explanation-data"
   class="hidden"
@@ -6,14 +6,15 @@
   data-attribution-layers="{{ attribution_layers | tojson }}"
 ></div>
 
-<section class="border-t border-slate-200 bg-white p-3 text-sm">
-  <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Топ признаков</h3>
-  <ol class="space-y-1">
-    {% for f in ranking %}
-    <li class="flex items-center justify-between">
-      <span>{{ f.feature }}</span>
-      <span class="font-mono text-slate-600">{{ "%.2f"|format(f.importance) }}</span>
-    </li>
-    {% endfor %}
-  </ol>
-</section>
+<h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Важность признаков (в точке)</h3>
+<ol class="space-y-1 text-sm">
+  {% for f in ranking %}
+  <li class="flex items-center justify-between">
+    <span>{{ f.label }}</span>
+    <span class="font-mono text-slate-600">{{ "%.0f"|format(f.importance * 100) }}%</span>
+  </li>
+  {% endfor %}
+</ol>
+{% if attribution_layers %}
+<p class="mt-2 text-xs text-slate-400">Слой важности топ-признака наложен на карту (шкала magma).</p>
+{% endif %}

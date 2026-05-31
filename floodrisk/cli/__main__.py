@@ -76,7 +76,12 @@ def _run_infer(args) -> int:
     with Session(engine) as session:
         try:
             res = service.predict(
-                session, args.bbox, args.scenario, args.model, run_dir=out, persist=False
+                session,
+                args.bbox,
+                args.scenario,
+                args.model,
+                run_dir=out,
+                persist=args.save_to_db,
             )
         except service.InvalidBBox as exc:
             print(f"[infer] invalid_bbox: {exc}", file=sys.stderr)
@@ -124,6 +129,9 @@ def build_parser() -> argparse.ArgumentParser:
     inf.add_argument("--scenario", default="p100y", help="scenario_id (p1y/p10y/p100y)")
     inf.add_argument("--model", default="unet-v1", help="version-имя модели")
     inf.add_argument("--out", default="runs/cli", help="каталог для артефактов")
+    inf.add_argument(
+        "--save-to-db", action="store_true", help="записать запуск в БД (как делает API)"
+    )
     inf.set_defaults(func=_run_infer)
 
     sub.add_parser("explain", help="объяснимость (Этап 5)")

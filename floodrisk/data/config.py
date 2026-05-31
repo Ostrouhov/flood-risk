@@ -65,6 +65,7 @@ class LabelsConfig(BaseModel):
     primary_band: str = "VV"
     slope_mask_deg: float = 5.0
     min_blob_px: int = 8
+    min_drop_db: float = 2.0  # порог change detection: падение VV(dB) flood vs dry
     permanent_water_occurrence_pct: int = 50
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
 

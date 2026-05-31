@@ -158,6 +158,7 @@ def run_label(cfg: DataConfig | None = None) -> dict[str, Path]:
             slope_path=slope_path if slope_path.exists() else None,
             max_slope_deg=cfg.labels_s1.slope_mask_deg,
             min_blob_px=cfg.labels_s1.min_blob_px,
+            min_drop_db=cfg.labels_s1.min_drop_db,
         )
         pp.cut_tiles(mask_path, lab_dir, cfg.tile_size_px, 0)
         results[ev.event_id] = mask_path

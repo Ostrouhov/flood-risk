@@ -8,17 +8,19 @@ from pathlib import Path
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 
+from floodrisk import feature_transform as ft
 from floodrisk.ml.data import _read_label, _read_tile, load_norm_stats, tile_paths
 
 
 def _sample_pixels(cfg: dict, split: str, *, per_tile: int, stratify: bool, seed: int):
-    """Собирает (X[N,7], y[N]) подвыборкой пикселей с нормировкой."""
+    """Собирает (X[N,C], y[N]) подвыборкой пикселей с нормировкой."""
     mean, std = load_norm_stats(cfg)
     rng = np.random.default_rng(seed)
     xs: list[np.ndarray] = []
     ys: list[np.ndarray] = []
     for _tid, tpath, lpath in tile_paths(cfg, split):
-        x = ((_read_tile(tpath) - mean) / std).reshape(7, -1).T  # [HW, 7]
+        norm = ft.transform(_read_tile(tpath), mean, std)
+        x = norm.reshape(norm.shape[0], -1).T  # [HW, C]
         y = _read_label(lpath).reshape(-1)  # [HW]
         n_pix = y.shape[0]
         if stratify:
@@ -52,7 +54,7 @@ def train_baseline(cfg: dict) -> Path:
     out = Path(cfg["artifact_path"])
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "wb") as f:
-        pickle.dump({"model": clf, "channels": 7}, f)
+        pickle.dump({"model": clf, "channels": int(X.shape[1])}, f)
     print(f"[baseline] обучено на {X.shape[0]} пикселях; модель → {out}")
     return out
 
