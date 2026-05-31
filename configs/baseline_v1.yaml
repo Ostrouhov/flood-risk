@@ -1,0 +1,25 @@
+# Конфиг табличного бейзлайна. См. SRS §7.2.2.
+
+model:
+  estimator: random_forest
+  params:
+    n_estimators: 200
+    max_depth: 20
+    n_jobs: -1
+    random_state: 42
+    class_weight: balanced_subsample
+
+data:
+  tile_dir: data/processed/v1/tiles
+  label_dir: data/processed/v1/labels/2019-tulun-iya
+  index: data/processed/v1/index.parquet
+  norm_stats: data/processed/v1/norm_stats.json
+  pixel_subsample_per_tile: 500
+  stratify_by_class: true
+  seed: 42
+
+mlflow:
+  experiment_name: floodrisk_baseline
+  tracking_uri: file://./mlruns
+
+artifact_path: models/baseline/v1/model.pkl

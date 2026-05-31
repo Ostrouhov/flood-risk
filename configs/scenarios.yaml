@@ -1,0 +1,36 @@
+# Преднастроенные метео-сценарии. Подаются на вход модели как дополнительные каналы.
+# Параметры — плейсхолдеры (OQ-7 в SRS §16). Финальные значения заполняются после
+# R&D-фазы данных (выбор пилотной территории и пересчёт интенсивностей по ERA5).
+
+scenarios:
+  - scenario_id: p1y
+    name: Норматив 1 год (повседневный фон)
+    description: >-
+      Условия близкие к среднегодовому максимуму осадков для пилотной территории.
+      Используется как нижняя граница чувствительности модели.
+    params:
+      return_period_years: 1
+      precipitation_mm_24h: 25
+      antecedent_precipitation_mm_5d: 15
+      soil_saturation_index: 0.45
+
+  - scenario_id: p10y
+    name: Норматив 10 лет
+    description: >-
+      Расчётный паводок 10-летней повторяемости. Базовый сценарий для демонстрации.
+    params:
+      return_period_years: 10
+      precipitation_mm_24h: 55
+      antecedent_precipitation_mm_5d: 40
+      soil_saturation_index: 0.70
+
+  - scenario_id: p100y
+    name: Норматив 100 лет
+    description: >-
+      Расчётный паводок 100-летней повторяемости. Используется для оценки
+      экстремальных зон риска.
+    params:
+      return_period_years: 100
+      precipitation_mm_24h: 110
+      antecedent_precipitation_mm_5d: 80
+      soil_saturation_index: 0.90

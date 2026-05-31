@@ -1,0 +1,7 @@
+{# OOB-swap-фрагмент: обновляет панель агрегатов одновременно с overlay. Этап 4. #}
+<div id="aggregates" hx-swap-oob="true" class="text-sm space-y-1">
+  <div>Площадь: <span class="font-mono">{{ "%.1f"|format(aggregates.area_km2) }} км²</span></div>
+  <div>p &gt; 0.5: <span class="font-mono">{{ "%.1f"|format(aggregates.fraction_p_gt_0_5 * 100) }} %</span></div>
+  <div>p &gt; 0.8: <span class="font-mono">{{ "%.1f"|format(aggregates.fraction_p_gt_0_8 * 100) }} %</span></div>
+  <div>средняя p: <span class="font-mono">{{ "%.3f"|format(aggregates.mean_p) }}</span></div>
+</div>

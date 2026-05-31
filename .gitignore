@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.eggs/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.ruff_cache/
+
+# venv / окружения
+.venv/
+venv/
+env/
+
+# секреты
+.env
+.env.local
+.env.*.local
+
+# БД и артефакты прототипа
+app.db
+app.db-journal
+app.db-shm
+app.db-wal
+
+# геоданные и артефакты прогонов (тяжёлые, регенерируются)
+data/raw/
+data/processed/
+runs/
+exports/
+models/
+mlruns/
+
+# OS / редакторы
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# служебные файлы харнесса/агентов
+.claude/
+
+# Logs
+*.log
+logs_*.txt

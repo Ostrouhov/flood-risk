@@ -1,0 +1,9 @@
+{# HTMX-фрагмент: невидимый <div> с data-атрибутами для триггера обновления Leaflet.
+   На Этапе 3 эндпоинт /ui/predict будет рендерить этот фрагмент. #}
+<div
+  id="prediction-data"
+  class="hidden"
+  data-png-url="{{ prediction_png_url }}"
+  data-bounds="{{ bounds_wgs84 | tojson }}"
+  data-run-id="{{ run_id }}"
+></div>

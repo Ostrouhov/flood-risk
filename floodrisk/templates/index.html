@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex h-full w-full flex-col" x-data="{ mode: 'view' }">
+  <header class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
+    <h1 class="text-lg font-semibold">floodrisk <span class="text-xs font-normal text-slate-500">прототип</span></h1>
+    <div class="text-xs text-slate-500">модель: <span class="font-mono">— (не загружена)</span></div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden">
+    <aside class="w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4 space-y-4">
+      <section>
+        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Сценарий</h2>
+        <div class="space-y-1 text-sm text-slate-400 italic">
+          селектор появится на Этапе 4
+        </div>
+      </section>
+
+      <section>
+        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Модель</h2>
+        <div class="text-sm text-slate-400 italic">регистрация моделей — Этап 2</div>
+      </section>
+
+      <section>
+        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Агрегаты</h2>
+        <div id="aggregates" class="text-sm text-slate-400 italic">
+          нет данных
+        </div>
+      </section>
+
+      <section>
+        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Режим</h2>
+        <div class="flex items-center gap-2 text-sm">
+          <button
+            class="rounded border border-slate-300 px-2 py-1 hover:bg-slate-100"
+            :class="mode === 'view' ? 'bg-slate-900 text-white' : ''"
+            @click="mode = 'view'"
+          >Просмотр</button>
+          <button
+            class="rounded border border-slate-300 px-2 py-1 hover:bg-slate-100"
+            :class="mode === 'explain' ? 'bg-slate-900 text-white' : ''"
+            @click="mode = 'explain'"
+          >Объяснение</button>
+        </div>
+      </section>
+    </aside>
+
+    <main class="relative flex-1">
+      <div id="map" class="h-full w-full"></div>
+      <div id="prediction-data" class="hidden"></div>
+      <div id="explanation-data" class="hidden"></div>
+    </main>
+  </div>
+
+  <footer class="border-t border-slate-200 bg-white px-4 py-2 text-xs text-slate-500">
+    Этап 0 (каркас). Легенда и overlay подключатся на Этапах 3–4.
+  </footer>
+</div>
+{% endblock %}

@@ -1,0 +1,73 @@
+# Параметры подготовки данных (Этап 1, FR-1…FR-4). OQ-1, OQ-9 — SRS §16.
+# OQ-9 закрыт: пилот — Тулун, р. Ия, наводнение июнь–июль 2019 (вариант A).
+# OQ-2: Sentinel-1 GRD из Planetary Computer (RTC Сибирь не покрывает), Otsu + change detection.
+
+dataset_version: v1
+
+# Пилотная территория: Тулун и пойма р. Ия (Иркутская обл.).
+# bbox в WGS84 [W, S, E, N], ~110×120 км — расширен для полноценного датасета
+# (сотни тайлов, непустой train/val/test split). Покрыт одной сценой S1 GRD.
+pilot_bbox_wgs84: [99.90, 54.05, 101.50, 55.15]
+
+# Целевая проекция (OQ-1): UTM-зона 47N для долготы ~100.7°E.
+target_crs: EPSG:32647
+
+tile_size_px: 256
+tile_resolution_m: 30
+tile_overlap_px: 0          # 0 для трейна; для инференса используется sliding window
+inference_overlap_px: 32    # см. SRS §6.4
+
+splits:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+  seed: 42
+  method: geographic_bbox
+
+# События с задокументированным разливом — источник лейблов Sentinel-1 (FR-3).
+events:
+  - event_id: 2019-tulun-iya
+    role: train_label
+    # post-event окно (пик разлива) — даты уточняются по доступным сценам S1.
+    flood_window: [2019-06-28, 2019-07-05]
+    # "сухое" окно той же орбиты для change detection (до паводка).
+    dry_window: [2019-05-01, 2019-06-10]
+    # эталон для валидации FR-3; код активации EMSR подтверждается при fetch.
+    reference: copernicus_ems
+
+# Источники сырых данных (SRS §6.1). Только параметры доступа, секреты — в .env.
+sources:
+  dem:
+    product: copernicus-dem-glo-30
+    via: aws_open_data            # анонимный HTTP, без токена
+  worldcover:
+    product: esa-worldcover-2021
+    via: aws_open_data
+  jrc_gsw:
+    product: global-surface-water
+    layer: occurrence
+    via: jrc_http
+    threshold_pct: 50             # occurrence ≥ порога → постоянная вода
+  osm:
+    via: overpass
+    water_tags: ["natural=water", "waterway", "landuse=reservoir"]
+  sentinel1:
+    product: sentinel-1-grd       # геокодир. EPSG:4326 (GCP), uint16 амплитуда → dB
+    via: planetary_computer       # анонимный STAC, без токена (RTC Сибирь не покрывает)
+    polarizations: ["VV", "VH"]
+  era5:
+    product: era5-land
+    via: cds_api                  # нужен CDS_API_KEY в .env
+    variables: ["total_precipitation"]
+
+# Параметры детектора затопления Sentinel-1 (OQ-2). Пишутся в манифест по факту.
+labels_s1:
+  method: otsu_change_detection
+  primary_band: VV
+  slope_mask_deg: 5               # разлив маловероятен на склонах круче
+  min_blob_px: 8                  # морфологическая чистка спеклов
+  permanent_water_occurrence_pct: 50
+  validation:
+    metric: iou
+    target: 0.50                  # целевой порог FR-3 vs Copernicus EMS
+    fallback: 0.40

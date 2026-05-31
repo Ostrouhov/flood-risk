@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.*"
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Create venv and install core deps
+        run: |
+          uv venv .venv --python 3.11
+          uv pip install -e ".[dev]"
+
+      - name: Lint
+        run: |
+          .venv/bin/ruff check .
+          .venv/bin/ruff format --check .
+
+      - name: Test
+        run: .venv/bin/pytest -m "not requires_network and not ml_smoke" --cov
+
+  docker-build-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: lint-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.*"
+
+      - name: Generate requirements.lock
+        run: uv pip compile pyproject.toml -o requirements.lock
+
+      - name: Build app image
+        run: docker build -t floodrisk:ci .

@@ -1,0 +1,39 @@
+# Конфиг тренировки U-Net v1. См. SRS §7.8.
+# Этап 2: датасет v1 = 7 каналов рельефа (БЕЗ метео); обучение на CPU.
+
+model:
+  arch: unet
+  encoder: resnet34
+  in_channels: 7            # dem, slope, aspect, curvature, twi, worldcover, dist_to_water
+  out_channels: 1
+
+data:
+  tile_dir: data/processed/v1/tiles
+  label_dir: data/processed/v1/labels/2019-tulun-iya
+  index: data/processed/v1/index.parquet
+  norm_stats: data/processed/v1/norm_stats.json
+  batch_size: 8
+  num_workers: 0           # тайлы кэшируются в RAM → воркеры не нужны (и без боли Windows-spawn)
+  augmentations: [rot90, hflip, vflip]   # meteo_noise убран: метео-каналов нет
+
+training:
+  max_epochs: 20
+  lr: 1.0e-3
+  loss: bce_dice           # bce_dice | focal_dice
+  pos_weight: 20.0         # компенсация дисбаланса flood ~1.2%
+  seed: 42
+  precision: 32            # 16-mixed бессмыслен на CPU
+  accelerator: cpu
+  torch_num_threads: 6     # лимит, чтобы ПК не висел (Ryzen 5 2600 = 12 потоков)
+  optimizer: adamw
+  scheduler: cosine
+
+checkpoint:
+  monitor: val_iou
+  mode: max
+  save_top_k: 1
+  dirpath: models/unet/
+
+mlflow:
+  experiment_name: floodrisk_unet
+  tracking_uri: file:./mlruns

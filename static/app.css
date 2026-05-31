@@ -1,0 +1,14 @@
+/* Минимум кастомных стилей — основная стилизация через Tailwind CDN. */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+/* Leaflet требует явной высоты у контейнера. */
+#map {
+  height: 100%;
+  width: 100%;
+  background: #e2e8f0;
+}

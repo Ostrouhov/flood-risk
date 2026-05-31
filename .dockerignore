@@ -1,0 +1,36 @@
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# data and artifacts — не нужны в образе
+data/raw/
+data/processed/
+mlruns/
+runs/
+exports/
+reports/
+models/
+
+# окружения и редакторы
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+*.swp
+
+# тесты, локалки, документация
+tests/
+docs/
+notebooks/
+*.md
+!README.md
+
+# lockfiles прочих менеджеров
+requirements-ml.lock
