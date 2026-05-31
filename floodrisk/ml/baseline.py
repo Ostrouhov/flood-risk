@@ -39,7 +39,8 @@ def _sample_pixels(cfg: dict, split: str, *, per_tile: int, stratify: bool, seed
 def train_baseline(cfg: dict) -> Path:
     d = cfg["data"]
     X, y = _sample_pixels(
-        cfg, "train",
+        cfg,
+        "train",
         per_tile=int(d.get("pixel_subsample_per_tile", 500)),
         stratify=bool(d.get("stratify_by_class", True)),
         seed=int(d.get("seed", 42)),

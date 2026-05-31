@@ -46,8 +46,9 @@ def dice_loss(logits: torch.Tensor, target: torch.Tensor, eps: float = 1.0) -> t
     return (1 - dice).mean()
 
 
-def focal_loss(logits: torch.Tensor, target: torch.Tensor, gamma: float = 2.0,
-               alpha: float = 0.75) -> torch.Tensor:
+def focal_loss(
+    logits: torch.Tensor, target: torch.Tensor, gamma: float = 2.0, alpha: float = 0.75
+) -> torch.Tensor:
     bce = F.binary_cross_entropy_with_logits(logits, target, reduction="none")
     p = torch.sigmoid(logits)
     p_t = p * target + (1 - p) * (1 - target)

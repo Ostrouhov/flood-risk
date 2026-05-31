@@ -5,9 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+# config/metrics зависят только от core (yaml/numpy/sklearn) → импортируем на верхнем уровне.
+# data.py тянет pandas (extras [data]/[ml]), которого в core-CI нет → импорт ленивый,
+# а сам тест помечен ml_smoke (CI его деселектит).
 from floodrisk.ml import config as cfgmod
 from floodrisk.ml import metrics as M
-from floodrisk.ml.data import _augment
 
 
 def test_config_type_detection():
@@ -54,7 +56,10 @@ def test_bootstrap_ci_ordered_and_overlap():
     assert M.ci_overlap((float("nan"), 0.2), (0.3, 0.4)) is True  # nan → консервативно
 
 
+@pytest.mark.ml_smoke
 def test_augment_preserves_shape_and_alignment():
+    from floodrisk.ml.data import _augment  # тянет pandas/torch — только в [ml]-окружении
+
     rng = np.random.default_rng(0)
     x = rng.random((7, 16, 16)).astype("float32")
     y = (rng.random((16, 16)) > 0.5).astype("float32")

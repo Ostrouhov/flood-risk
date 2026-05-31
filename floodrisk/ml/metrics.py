@@ -47,7 +47,9 @@ METRIC_FNS = {
     "F1": f1_score_bin,
     "ROC-AUC": lambda yt, p: _safe_auc(yt, p),
     "PR-AUC": lambda yt, p: _safe_ap(yt, p),
-    "Brier": lambda yt, p: float(brier_score_loss(yt, p)) if len(np.unique(yt)) > 0 else float("nan"),
+    "Brier": lambda yt, p: (
+        float(brier_score_loss(yt, p)) if len(np.unique(yt)) > 0 else float("nan")
+    ),
 }
 
 

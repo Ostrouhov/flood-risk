@@ -29,7 +29,7 @@ def tracking_uri(cfg: dict[str, Any]) -> str:
     # Любая file-форма (file://./x, file:./x, ./x, x) → абсолютный file-URI.
     for prefix in ("file://", "file:"):
         if raw.startswith(prefix):
-            raw = raw[len(prefix):]
+            raw = raw[len(prefix) :]
             break
     return Path(raw).resolve().as_uri()
 

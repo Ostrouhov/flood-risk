@@ -151,7 +151,9 @@ class FloodDataModule(_LDM):
 
     def train_dataloader(self):
         return DataLoader(
-            self.train_ds, batch_size=self.batch_size, shuffle=True,
+            self.train_ds,
+            batch_size=self.batch_size,
+            shuffle=True,
             num_workers=self.num_workers,
         )
 

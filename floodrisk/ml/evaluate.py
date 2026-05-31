@@ -111,8 +111,16 @@ def run_eval(unet_config: str, baseline_config: str, out_path: str) -> int:
     ut_pool, up_pool = np.concatenate(ut), np.concatenate(up)
     bt_pool, bp_pool = np.concatenate(bt), np.concatenate(bp)
     thr_diag = {
-        "unet": (u_thr, M.iou_score(ut_pool, up_pool, u_thr), M.f1_score_bin(ut_pool, up_pool, u_thr)),
-        "baseline": (b_thr, M.iou_score(bt_pool, bp_pool, b_thr), M.f1_score_bin(bt_pool, bp_pool, b_thr)),
+        "unet": (
+            u_thr,
+            M.iou_score(ut_pool, up_pool, u_thr),
+            M.f1_score_bin(ut_pool, up_pool, u_thr),
+        ),
+        "baseline": (
+            b_thr,
+            M.iou_score(bt_pool, bp_pool, b_thr),
+            M.f1_score_bin(bt_pool, bp_pool, b_thr),
+        ),
     }
 
     # M-2: U-Net > baseline по IoU и F1 и PR-AUC, CI не пересекаются.
@@ -133,7 +141,9 @@ def run_eval(unet_config: str, baseline_config: str, out_path: str) -> int:
     lines.append("тайл — независимая единица (пиксели внутри коррелированы).\n\n")
 
     lines.append("## Метрики\n")
-    lines.append("| Метрика | U-Net | baseline | CI U-Net (95%) | CI baseline (95%) | CI непересек. |")
+    lines.append(
+        "| Метрика | U-Net | baseline | CI U-Net (95%) | CI baseline (95%) | CI непересек. |"
+    )
     lines.append("|---|---|---|---|---|---|")
     for m in METRIC_ORDER:
         disjoint = not M.ci_overlap(u_ci[m], b_ci[m])

@@ -45,15 +45,17 @@ def train_unet(cfg: dict) -> int:
         experiment_name=cfg["mlflow"]["experiment_name"],
         tracking_uri=cfgmod.tracking_uri(cfg),
     )
-    logger.log_hyperparams({
-        "encoder": cfg["model"].get("encoder"),
-        "in_channels": cfg["model"]["in_channels"],
-        "loss": tr.get("loss"),
-        "pos_weight": tr.get("pos_weight"),
-        "lr": tr.get("lr"),
-        "max_epochs": tr.get("max_epochs"),
-        "batch_size": cfg["data"].get("batch_size"),
-    })
+    logger.log_hyperparams(
+        {
+            "encoder": cfg["model"].get("encoder"),
+            "in_channels": cfg["model"]["in_channels"],
+            "loss": tr.get("loss"),
+            "pos_weight": tr.get("pos_weight"),
+            "lr": tr.get("lr"),
+            "max_epochs": tr.get("max_epochs"),
+            "batch_size": cfg["data"].get("batch_size"),
+        }
+    )
 
     trainer = pl.Trainer(
         max_epochs=int(tr.get("max_epochs", 20)),
