@@ -46,3 +46,19 @@ class PredictResponse(BaseModel):
     bounds_wgs84: list[float]  # [south, west, north, east] для Leaflet
     aggregates: dict
     metadata: dict
+
+
+class ExportResponse(BaseModel):
+    export_url: str
+
+
+class RunOut(BaseModel):
+    run_id: str
+    bbox: list[float]
+    scenario_id: str
+    model_version_id: int
+    prediction_png_url: str | None = None
+    prediction_tif_url: str | None = None
+    aggregates: dict | None = None
+    latency_ms: int | None = None
+    status: str

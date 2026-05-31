@@ -13,7 +13,7 @@ import rasterio
 from rasterio.transform import from_origin
 from sqlmodel import Session, delete
 
-from floodrisk.db.models import ModelVersion, Run, Scenario
+from floodrisk.db.models import Explanation, Export, ModelVersion, Run, Scenario
 from floodrisk.db.session import create_db_and_tables, engine
 from floodrisk.inference import registry
 from floodrisk.inference import service as svc
@@ -22,7 +22,8 @@ from floodrisk.inference.features import coverage_wgs84
 
 def _clear_db(session: Session) -> None:
     # in-memory SQLite из conftest общий на сессию (StaticPool) → чистим за собой.
-    for model in (Run, ModelVersion, Scenario):
+    # Порядок учитывает FK: сначала зависимые (Export/Explanation → Run), потом Run.
+    for model in (Export, Explanation, Run, ModelVersion, Scenario):
         session.exec(delete(model))
     session.commit()
 
@@ -169,3 +170,65 @@ def test_predict_invalid_bbox_400(client, inference_env):
     )
     assert r.status_code == 400
     assert r.json()["error"] == "invalid_bbox"
+
+
+# ── Этап 4: HTML-роуты и экспорт ──────────────────────────────────────────────
+
+
+def test_ui_predict_returns_fragment(client, inference_env):
+    bbox = ",".join(str(x) for x in _inner_bbox(inference_env["coverage"]))
+    r = client.post(
+        "/ui/predict",
+        data={"scenario_id": "p100y", "model_version": "unet-test", "bbox": bbox},
+    )
+    assert r.status_code == 200
+    assert 'id="prediction-data"' in r.text
+    assert "data-png-url" in r.text
+    assert "Площадь" in r.text  # OOB-фрагмент агрегатов
+
+
+def test_ui_predict_out_of_coverage_message(client, inference_env):
+    w, s, _e, _n = inference_env["coverage"]
+    bbox = f"{w + 20},{s + 5},{w + 21},{s + 6}"
+    r = client.post(
+        "/ui/predict",
+        data={"scenario_id": "p100y", "model_version": "unet-test", "bbox": bbox},
+    )
+    assert r.status_code == 200
+    assert "вне зоны покрытия" in r.text
+
+
+def test_run_meta_and_export_zip(client, inference_env):
+    import zipfile
+
+    from floodrisk.settings import settings
+
+    bbox = _inner_bbox(inference_env["coverage"])
+    rid = client.post(
+        "/api/predict", json={"bbox": bbox, "scenario_id": "p100y", "model_version": "unet-test"}
+    ).json()["run_id"]
+
+    meta = client.get(f"/api/runs/{rid}")
+    assert meta.status_code == 200
+    assert meta.json()["scenario_id"] == "p100y"
+
+    ex = client.post(f"/api/runs/{rid}/export")
+    assert ex.status_code == 200
+    assert ex.json()["export_url"].endswith(f"{rid}.zip")
+
+    zp = settings.exports_dir / f"{rid}.zip"
+    assert zp.exists()
+    with zipfile.ZipFile(zp) as zf:
+        names = set(zf.namelist())
+    assert {"prediction.tif", "aggregates.geojson", "report.pdf"} <= names
+
+
+def test_ui_export_triggers_download(client, inference_env):
+    bbox = _inner_bbox(inference_env["coverage"])
+    rid = client.post(
+        "/api/predict", json={"bbox": bbox, "scenario_id": "p100y", "model_version": "unet-test"}
+    ).json()["run_id"]
+    r = client.post("/ui/export", data={"run_id": rid})
+    assert r.status_code == 200
+    assert "Скачать ZIP" in r.text
+    assert "download-ready" in r.headers.get("HX-Trigger", "")
