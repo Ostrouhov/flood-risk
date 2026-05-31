@@ -32,7 +32,7 @@ checkpoint:
   monitor: val_iou
   mode: max
   save_top_k: 1
-  dirpath: models/unet/
+  dirpath: models/unet/v1/
 
 mlflow:
   experiment_name: floodrisk_unet

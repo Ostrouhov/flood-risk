@@ -1,12 +1,13 @@
 """CLI entry point: `python -m floodrisk <subcommand>`.
 
-Этап 1 реализует группу ``data`` (fetch/preprocess/label/manifest/verify, FR-1…FR-4).
-Подкоманды train/eval/infer/explain — заглушки до соответствующих этапов (SRS §17, §10.1).
+Реализованы: ``data`` (Этап 1, FR-1…FR-4), ``train``/``eval`` (Этап 2, FR-5…FR-7),
+``infer`` (Этап 3, FR-8). ``explain`` — заглушка до Этапа 5 (SRS §17, §10.1).
 """
 
 import argparse
 import contextlib
 import sys
+from pathlib import Path
 
 
 def _parse_bbox(value: str) -> list[float]:
@@ -64,6 +65,36 @@ def _run_eval(args) -> int:
     return run_eval(unet_cfg, base_cfg, args.out)
 
 
+def _run_infer(args) -> int:
+    from sqlmodel import Session
+
+    from floodrisk.db.session import create_db_and_tables, engine
+    from floodrisk.inference import service
+
+    create_db_and_tables()
+    out = Path(args.out)
+    with Session(engine) as session:
+        try:
+            res = service.predict(
+                session, args.bbox, args.scenario, args.model, run_dir=out, persist=False
+            )
+        except service.InvalidBBox as exc:
+            print(f"[infer] invalid_bbox: {exc}", file=sys.stderr)
+            return 3
+        except service.OutOfCoverage as exc:
+            print(
+                f"[infer] bbox_out_of_coverage; coverage_wgs84={exc.coverage_wgs84}",
+                file=sys.stderr,
+            )
+            return 22
+        except (service.UnknownScenario, service.UnknownModel) as exc:
+            print(f"[infer] {exc}: available={exc.available}", file=sys.stderr)
+            return 4
+    print(f"[infer] run_id={res['run_id']} -> {out}")
+    print(f"[infer] aggregates={res['aggregates']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="floodrisk", description="floodrisk CLI")
     sub = parser.add_subparsers(dest="cmd")
@@ -88,11 +119,14 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--out", default="reports/comparison_v1.md", help="путь к отчёту")
     ev.set_defaults(func=_run_eval)
 
-    for name, help_text in [
-        ("infer", "CLI-инференс (Этап 3)"),
-        ("explain", "объяснимость (Этап 5)"),
-    ]:
-        sub.add_parser(name, help=help_text)
+    inf = sub.add_parser("infer", help="CLI-инференс (Этап 3, FR-8)")
+    inf.add_argument("--bbox", type=_parse_bbox, required=True, help="bbox 'W,S,E,N' (EPSG:4326)")
+    inf.add_argument("--scenario", default="p100y", help="scenario_id (p1y/p10y/p100y)")
+    inf.add_argument("--model", default="unet-v1", help="version-имя модели")
+    inf.add_argument("--out", default="runs/cli", help="каталог для артефактов")
+    inf.set_defaults(func=_run_infer)
+
+    sub.add_parser("explain", help="объяснимость (Этап 5)")
     return parser
 
 

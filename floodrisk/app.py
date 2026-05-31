@@ -1,5 +1,6 @@
 """FastAPI app factory: монтирует статику, шаблоны, роуты; на старте создаёт схему БД."""
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -12,9 +13,29 @@ from floodrisk.db.session import create_db_and_tables
 from floodrisk.settings import settings
 
 
+def _warm_models() -> None:
+    """Резидентная загрузка зарегистрированных моделей в память (FR-13)."""
+    import torch
+    from sqlmodel import Session
+
+    from floodrisk.db.repositories import list_model_versions
+    from floodrisk.db.session import engine
+    from floodrisk.inference.registry import warm
+
+    torch.set_num_threads(min(6, max(1, os.cpu_count() or 4)))
+    with Session(engine) as session:
+        records = [(m.name, m.version, m.checkpoint_path) for m in list_model_versions(session)]
+    n = warm(records)
+    print(f"[app] резидентных моделей загружено: {n}")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     create_db_and_tables()
+    try:
+        _warm_models()
+    except Exception as exc:  # прогрев не должен валить старт
+        print(f"[app] прогрев моделей пропущен: {exc}")
     yield
 
 

@@ -73,6 +73,15 @@ def train_unet(cfg: dict) -> int:
     # Зафиксировать путь к лучшему чекпойнту для eval.
     best = checkpoint.best_model_path or checkpoint.last_model_path
     (Path(ckpt_cfg["dirpath"]) / "best.txt").write_text(best, encoding="utf-8")
+
+    # Экспорт в TorchScript для инференса без extras [ml] (FR-13).
+    from floodrisk.ml.export import export_unet_torchscript
+
+    try:
+        ts_path = export_unet_torchscript(cfg)
+        print(f"[train] torchscript: {ts_path}")
+    except Exception as exc:  # экспорт не должен валить тренировку
+        print(f"[train] экспорт TorchScript пропущен: {exc}")
     return 0
 
 

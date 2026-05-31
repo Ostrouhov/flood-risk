@@ -29,3 +29,20 @@ class ModelVersionOut(BaseModel):
     version: str
     dataset_version: str
     metrics: dict | None = None
+
+
+class PredictRequest(BaseModel):
+    """См. SRS §8.1. bbox = [west, south, east, north] в EPSG:4326."""
+
+    bbox: list[float] = Field(min_length=4, max_length=4)
+    scenario_id: str
+    model_version: str = "unet-v1"
+
+
+class PredictResponse(BaseModel):
+    run_id: str
+    prediction_png_url: str
+    prediction_tif_url: str
+    bounds_wgs84: list[float]  # [south, west, north, east] для Leaflet
+    aggregates: dict
+    metadata: dict

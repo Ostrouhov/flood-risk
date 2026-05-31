@@ -19,9 +19,10 @@ def test_index_renders(client: TestClient) -> None:
     assert "floodrisk" in response.text
 
 
-def test_predict_not_implemented_yet(client: TestClient) -> None:
-    response = client.post("/api/predict")
-    assert response.status_code == 501
+def test_predict_validates_body(client: TestClient) -> None:
+    # Эндпоинт реализован (Этап 3); пустое тело → 422 валидации Pydantic.
+    response = client.post("/api/predict", json={})
+    assert response.status_code == 422
 
 
 def test_scenarios_empty_before_seed(client: TestClient) -> None:

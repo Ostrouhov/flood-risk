@@ -24,7 +24,7 @@ def _unet_predictions(cfg: dict, split: str) -> tuple[list[np.ndarray], list[np.
     from floodrisk.ml.model import UNetLitModule
 
     best_txt = Path(cfg["checkpoint"]["dirpath"]) / "best.txt"
-    ckpt_path = best_txt.read_text(encoding="utf-8").strip()
+    ckpt_path = best_txt.read_text(encoding="utf-8-sig").strip()
     model = UNetLitModule(cfg)
     state = torch.load(ckpt_path, map_location="cpu")
     model.load_state_dict(state["state_dict"])

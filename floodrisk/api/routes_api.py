@@ -4,10 +4,17 @@ import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
 from floodrisk import __version__
-from floodrisk.api.schemas import HealthResponse, ModelVersionOut, ScenarioOut
+from floodrisk.api.schemas import (
+    HealthResponse,
+    ModelVersionOut,
+    PredictRequest,
+    PredictResponse,
+    ScenarioOut,
+)
 from floodrisk.db.repositories import list_model_versions, list_scenarios
 from floodrisk.db.session import get_session
 
@@ -51,14 +58,28 @@ def get_model_versions(session: Session = Depends(get_session)) -> list[ModelVer
     ]
 
 
-# На Этапе 3 здесь появятся /predict, /explain, /runs/{id}/export.
-# Пока — заглушки, чтобы клиенты ловили осмысленный 501 вместо 404.
-@router.post("/predict", status_code=501)
-def predict() -> dict:
-    raise HTTPException(
-        status_code=501,
-        detail="not_implemented: inference сервис будет добавлен на Этапе 3 (см. SRS §17)",
-    )
+@router.post("/predict", response_model=PredictResponse)
+def predict(req: PredictRequest, session: Session = Depends(get_session)):
+    """Инференс карты подверженности по bbox+сценарию+модели. См. SRS §8.1, FR-9/FR-12."""
+    from floodrisk.inference import service
+
+    try:
+        return service.predict(session, req.bbox, req.scenario_id, req.model_version)
+    except service.InvalidBBox as exc:
+        return JSONResponse(status_code=400, content={"error": "invalid_bbox", "detail": str(exc)})
+    except service.OutOfCoverage as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "bbox_out_of_coverage", "coverage_wgs84": exc.coverage_wgs84},
+        )
+    except service.UnknownScenario as exc:
+        return JSONResponse(
+            status_code=404, content={"error": "unknown_scenario", "available": exc.available}
+        )
+    except service.UnknownModel as exc:
+        return JSONResponse(
+            status_code=404, content={"error": "unknown_model", "available": exc.available}
+        )
 
 
 @router.post("/explain", status_code=501)

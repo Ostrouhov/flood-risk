@@ -45,6 +45,13 @@ def seed_scenarios(session: Session) -> int:
     return n
 
 
+# Сопоставление имени модели с её обучающим конфигом (нужен инференсу: in_channels, norm_stats).
+_MODEL_CONFIGS = {
+    "unet": "configs/unet_v1.yaml",
+    "baseline": "configs/baseline_v1.yaml",
+}
+
+
 def seed_model_versions(session: Session) -> int:
     """Регистрирует обученные модели из models/<name>/<version>/.
 
@@ -63,11 +70,13 @@ def seed_model_versions(session: Session) -> int:
             if not version_dir.is_dir():
                 continue
             version = version_dir.name
-            ckpt_candidates = list(version_dir.glob("*.ckpt")) + list(version_dir.glob("*.pkl"))
-            if not ckpt_candidates:
+            # Инференс грузит TorchScript (*.pt) или sklearn (*.pkl); *.ckpt — только для обучения.
+            candidates = list(version_dir.glob("*.pt")) + list(version_dir.glob("*.pkl"))
+            if not candidates:
                 continue
-            checkpoint_path = str(ckpt_candidates[0])
-            config_path = str(version_dir / "config.yaml")
+            checkpoint_path = str(candidates[0])
+            cfg_default = str(settings.configs_dir / f"{name}_{version}.yaml")
+            config_path = _MODEL_CONFIGS.get(name, cfg_default)
             metrics_path = version_dir / "metrics.json"
             metrics_json = (
                 metrics_path.read_text(encoding="utf-8") if metrics_path.exists() else None
