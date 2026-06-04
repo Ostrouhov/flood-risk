@@ -1,3 +1,13 @@
 {# Ответ /ui/predict: обновляет #prediction-data (триггер Leaflet) + #aggregates (OOB). Этап 4. #}
 {% include "fragments/map_layer.html" %}
 {% include "fragments/aggregates.html" %}
+{# OOB-баннер «экспериментально» (онлайн-режим вне валидированного региона). Пустой → сброс. #}
+<div id="experimental-banner" hx-swap-oob="true"
+     class="pointer-events-none absolute inset-x-0 top-0 z-[1100]">
+  {% if experimental %}
+  <div class="border-b border-amber-300 bg-amber-100/95 px-3 py-2 text-xs text-amber-900">
+    ⚠ Экспериментально: зона вне валидированного региона (Тулун). Признаки собраны онлайн,
+    качество модели здесь не гарантировано.
+  </div>
+  {% endif %}
+</div>

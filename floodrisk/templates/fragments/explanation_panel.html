@@ -3,7 +3,8 @@
   id="explanation-data"
   class="hidden"
   data-explanation-id="{{ explanation_id }}"
-  data-attribution-layers="{{ attribution_layers | tojson }}"
+  {# одинарные кавычки: tojson экранирует ', но НЕ ", а JSON слоёв содержит "-строки #}
+  data-attribution-layers='{{ attribution_layers | tojson }}'
 ></div>
 
 <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Важность признаков (в точке)</h3>

@@ -54,18 +54,31 @@ def ui_predict(
     scenario_id: str = Form(...),
     model_version: str = Form(...),
     bbox: str = Form(...),
+    source: str = Form("auto"),
     session: Session = Depends(get_session),
 ) -> HTMLResponse:
     from floodrisk.inference import service
 
     try:
         coords = [float(x) for x in bbox.split(",")]
-        result = service.predict(session, coords, scenario_id, model_version)
+        result = service.predict(session, coords, scenario_id, model_version, source=source)
     except service.OutOfCoverage:
         return templates.TemplateResponse(
             request,
             "fragments/predict_error.html",
             {"message": "bbox вне зоны покрытия пилотной территории"},
+        )
+    except service.BBoxTooLarge as exc:
+        return templates.TemplateResponse(
+            request,
+            "fragments/predict_error.html",
+            {"message": f"слишком большая зона (>{exc.limit_km:.0f} км) — уменьшите выбор"},
+        )
+    except service.OnlineFetchError:
+        return templates.TemplateResponse(
+            request,
+            "fragments/predict_error.html",
+            {"message": "не удалось загрузить данные рельефа для этой зоны (сеть/нет покрытия)"},
         )
     except (service.InvalidBBox, ValueError):
         return templates.TemplateResponse(
@@ -83,6 +96,7 @@ def ui_predict(
             "bounds_wgs84": result["bounds_wgs84"],
             "run_id": result["run_id"],
             "aggregates": result["aggregates"],
+            "experimental": result["metadata"]["experimental"],
         },
     )
 
@@ -96,16 +110,23 @@ def ui_explain(
     session: Session = Depends(get_session),
 ) -> HTMLResponse:
     from floodrisk.inference import explain as explain_mod
+    from floodrisk.inference import service
 
     try:
         res = explain_mod.explain(session, run_id, lat, lon)
     except explain_mod.RunNotFound:
         return templates.TemplateResponse(
-            request, "fragments/predict_error.html", {"message": "сначала постройте карту"}
+            request, "fragments/explanation_error.html", {"message": "сначала постройте карту"}
         )
     except explain_mod.PointOutOfCoverage:
         return templates.TemplateResponse(
-            request, "fragments/predict_error.html", {"message": "точка вне зоны покрытия"}
+            request, "fragments/explanation_error.html", {"message": "точка вне зоны покрытия"}
+        )
+    except (service.OnlineFetchError, service.BBoxTooLarge):
+        return templates.TemplateResponse(
+            request,
+            "fragments/explanation_error.html",
+            {"message": "не удалось собрать данные рельефа для этой точки (сеть/нет покрытия)"},
         )
     return templates.TemplateResponse(
         request,

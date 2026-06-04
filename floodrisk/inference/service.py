@@ -25,6 +25,7 @@ from floodrisk.db.repositories import (
     list_scenarios,
 )
 from floodrisk.inference import features as feat
+from floodrisk.inference import online_features as online
 from floodrisk.inference.registry import load_model
 from floodrisk.inference.scenario import apply_scenario
 from floodrisk.settings import settings
@@ -32,6 +33,8 @@ from floodrisk.settings import settings
 # Реэкспорт ошибок покрытия/геометрии для маппинга в API.
 OutOfCoverage = feat.OutOfCoverage
 InvalidBBox = feat.InvalidBBox
+BBoxTooLarge = online.BBoxTooLarge
+OnlineFetchError = online.OnlineFetchError
 
 
 class UnknownScenario(Exception):
@@ -55,6 +58,33 @@ def _load_norm_stats(config_path: str) -> tuple[np.ndarray, np.ndarray]:
 
     cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
     return ft.load_stats(settings.project_root / cfg["data"]["norm_stats"])
+
+
+def _resolve_features(bbox: list[float], dataset_version: str, source: str):
+    """Источник признаков → (raw[7,H,W], transform, crs, used_source).
+
+    source: 'mosaic' (готовая мозаика, валидированный регион), 'online' (сборка на
+    лету для произвольного bbox, экспериментально) или 'auto' (мозаика в покрытии,
+    иначе онлайн). См. SRS-расширение «глобальный режим».
+    """
+    stack = feature_stack_path(dataset_version)
+    if source == "online":
+        fdata, transform, crs = online.build_feature_window(
+            bbox, cache_dir=settings.online_cache_dir
+        )
+        return fdata, transform, crs, "online"
+    if source == "mosaic":
+        fdata, transform, crs, _ = feat.read_feature_window(bbox, stack)
+        return fdata, transform, crs, "mosaic"
+    # auto: пробуем мозаику, при выходе за покрытие — онлайн
+    try:
+        fdata, transform, crs, _ = feat.read_feature_window(bbox, stack)
+        return fdata, transform, crs, "mosaic"
+    except feat.OutOfCoverage:
+        fdata, transform, crs = online.build_feature_window(
+            bbox, cache_dir=settings.online_cache_dir
+        )
+        return fdata, transform, crs, "online"
 
 
 def _resolve_model(session: Session, model_version: str):
@@ -135,11 +165,16 @@ def predict(
     scenario_id: str,
     model_version: str,
     *,
+    source: str = "auto",
     run_dir: Path | None = None,
     run_id: str | None = None,
     persist: bool = True,
 ) -> dict:
-    """Полный инференс. Возвращает dict для API/CLI. Бросает Unknown*/OutOfCoverage/InvalidBBox."""
+    """Полный инференс. Возвращает dict для API/CLI.
+
+    source: 'auto' (мозаика в покрытии, иначе онлайн), 'mosaic', 'online'.
+    Бросает Unknown*/OutOfCoverage/InvalidBBox/BBoxTooLarge/OnlineFetchError.
+    """
     t0 = time.perf_counter()
 
     if len(bbox) != 4 or not (bbox[2] > bbox[0] and bbox[3] > bbox[1]):
@@ -150,8 +185,7 @@ def predict(
         raise UnknownScenario([s.scenario_id for s in list_scenarios(session)])
     rec = _resolve_model(session, model_version)
 
-    stack = feature_stack_path(rec.dataset_version)
-    fdata, transform, crs, _native_bounds = feat.read_feature_window(bbox, stack)
+    fdata, transform, crs, used_source = _resolve_features(bbox, rec.dataset_version, source)
 
     mean, std = _load_norm_stats(rec.config_path)
     fnorm = ft.transform(fdata, mean, std)
@@ -179,6 +213,8 @@ def predict(
         "dataset_version": rec.dataset_version,
         "scenario_id": scenario_id,
         "bbox": bbox,
+        "source": used_source,
+        "experimental": used_source == "online",
         "run_timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "latency_ms": latency_ms,
     }

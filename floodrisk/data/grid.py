@@ -40,31 +40,48 @@ class TargetGrid:
         return (xmin, ymin, xmax, ymax)
 
     @classmethod
-    def from_config(cls, cfg: DataConfig) -> TargetGrid:
-        w, s, e, n = cfg.pilot_bbox_wgs84
-        res = cfg.tile_resolution_m
-        transformer = Transformer.from_crs("EPSG:4326", cfg.target_crs, always_xy=True)
+    def from_bbox(cls, bbox_wgs84: list[float], res_m: float, crs: str) -> TargetGrid:
+        """Сетка для произвольного bbox (WGS84 [W,S,E,N]) в заданном CRS.
 
-        # проецируем все 4 угла bbox и берём охватывающий прямоугольник
+        Проецирует углы bbox в целевой CRS, берёт охватывающий прямоугольник,
+        привязывает к кратности разрешения. Основа и для пилота (from_config),
+        и для онлайн-инференса по произвольной зоне.
+        """
+        w, s, e, n = bbox_wgs84
+        transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+
         corners = [(w, s), (w, n), (e, s), (e, n)]
         xs, ys = zip(*(transformer.transform(lon, lat) for lon, lat in corners), strict=True)
         xmin, xmax = min(xs), max(xs)
         ymin, ymax = min(ys), max(ys)
 
         # привязываем к кратности разрешения, расширяя наружу
-        xmin = math.floor(xmin / res) * res
-        ymin = math.floor(ymin / res) * res
-        xmax = math.ceil(xmax / res) * res
-        ymax = math.ceil(ymax / res) * res
+        xmin = math.floor(xmin / res_m) * res_m
+        ymin = math.floor(ymin / res_m) * res_m
+        xmax = math.ceil(xmax / res_m) * res_m
+        ymax = math.ceil(ymax / res_m) * res_m
 
-        width = round((xmax - xmin) / res)
-        height = round((ymax - ymin) / res)
+        width = round((xmax - xmin) / res_m)
+        height = round((ymax - ymin) / res_m)
         # north-up affine: origin в верхнем-левом углу, y убывает вниз
-        transform = Affine(res, 0.0, xmin, 0.0, -res, ymax)
-        return cls(
-            crs=cfg.target_crs,
-            transform=transform,
-            width=width,
-            height=height,
-            resolution_m=res,
-        )
+        transform = Affine(res_m, 0.0, xmin, 0.0, -res_m, ymax)
+        return cls(crs=crs, transform=transform, width=width, height=height, resolution_m=res_m)
+
+    @classmethod
+    def from_config(cls, cfg: DataConfig) -> TargetGrid:
+        return cls.from_bbox(cfg.pilot_bbox_wgs84, cfg.tile_resolution_m, cfg.target_crs)
+
+
+def utm_epsg_for_bbox(bbox_wgs84: list[float]) -> str:
+    """EPSG UTM-зоны по центроиду bbox. Север → 326xx, юг → 327xx.
+
+    Чистая функция (без I/O). Зона = floor((lon+180)/6)+1, клип к 1..60.
+    Для онлайн-инференса по произвольной зоне (целевая проекция метрическая).
+    """
+    w, s, e, n = bbox_wgs84
+    lon_c = (w + e) / 2.0
+    lat_c = (s + n) / 2.0
+    zone = math.floor((lon_c + 180.0) / 6.0) + 1
+    zone = min(60, max(1, zone))
+    hemisphere = 600 if lat_c >= 0 else 700  # 326xx (N) / 327xx (S)
+    return f"EPSG:32{hemisphere + zone}"

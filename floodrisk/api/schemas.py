@@ -1,6 +1,7 @@
 """Pydantic-схемы запросов/ответов. Дополняются по мере роста API (см. SRS §8)."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -37,6 +38,8 @@ class PredictRequest(BaseModel):
     bbox: list[float] = Field(min_length=4, max_length=4)
     scenario_id: str
     model_version: str = "unet-v1"
+    # источник признаков: auto (мозаика в покрытии, иначе онлайн), mosaic, online
+    source: Literal["auto", "mosaic", "online"] = "auto"
 
 
 class PredictResponse(BaseModel):

@@ -7,17 +7,20 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
 import rasterio
 from rasterio.warp import transform as warp_transform
 from rasterio.windows import Window
+from rasterio.windows import transform as window_transform
 from sqlmodel import Session
 
 from floodrisk import feature_transform as ft
 from floodrisk.db.models import Explanation, ModelVersion
 from floodrisk.db.repositories import get_run
+from floodrisk.inference import online_features as online
 from floodrisk.inference.service import _load_norm_stats, feature_stack_path
 from floodrisk.settings import settings
 
@@ -50,6 +53,36 @@ def _window_around(lat: float, lon: float, stack_path: Path):
         transform = src.window_transform(win)
         crs = src.crs
     return raw, transform, crs
+
+
+def _crop_to_multiple_of_32(raw: np.ndarray, transform):
+    """Центральная обрезка окна до кратности 32 по сторонам (вход энкодера U-Net resnet34)."""
+    _c, h, w = raw.shape
+    nh = max(32, (h // 32) * 32)
+    nw = max(32, (w // 32) * 32)
+    r0, c0 = (h - nh) // 2, (w - nw) // 2
+    win = Window(c0, r0, nw, nh)
+    cropped = np.ascontiguousarray(raw[:, r0 : r0 + nh, c0 : c0 + nw])
+    return cropped, window_transform(win, transform)
+
+
+def _window_for_explain(lat: float, lon: float, dataset_version: str):
+    """Окно признаков вокруг точки: мозаика в покрытии, иначе онлайн-сборка (как в predict).
+
+    Возвращает (raw[7,H,W], transform, crs). Размер кратен 32 (требование U-Net).
+    """
+    stack = feature_stack_path(dataset_version)
+    try:
+        return _window_around(lat, lon, stack)
+    except PointOutOfCoverage:
+        # вне покрытия → собрать окно ~TILE*res вокруг точки онлайн (experimental)
+        half_m = (TILE * online.RES_M) / 2.0
+        dlat = half_m / 111320.0
+        dlon = half_m / (111320.0 * max(math.cos(math.radians(lat)), 1e-6))
+        bbox = [lon - dlon, lat - dlat, lon + dlon, lat + dlat]
+        raw, transform, crs = online.build_feature_window(bbox, cache_dir=settings.online_cache_dir)
+        cropped, t2 = _crop_to_multiple_of_32(raw, transform)
+        return cropped, t2, crs
 
 
 def _unet_attributions(checkpoint_path: str, fnorm: np.ndarray, n_steps: int = 16) -> np.ndarray:
@@ -110,8 +143,7 @@ def explain(session: Session, run_id: str, lat: float, lon: float, *, top_n: int
         raise RunNotFound(run_id)
     rec = session.get(ModelVersion, run.model_version_id)
 
-    stack = feature_stack_path(rec.dataset_version)
-    raw, transform, crs = _window_around(lat, lon, stack)
+    raw, transform, crs = _window_for_explain(lat, lon, rec.dataset_version)
     mean, std = _load_norm_stats(rec.config_path)
     fnorm = ft.transform(raw, mean, std)
     groups = ft.feature_groups()

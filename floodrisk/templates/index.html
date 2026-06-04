@@ -48,6 +48,10 @@
           <option value="center">Центр территории</option>
           <option value="view">Текущий вид карты</option>
         </select>
+        <p class="mt-1 text-xs text-slate-400">
+          «Текущий вид карты» работает и вне Тулуна: панорамируйте карту и приблизьте
+          зону — признаки соберутся онлайн (экспериментально).
+        </p>
         <button
           class="mt-2 w-full rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
           onclick="floodrisk.recalc()" x-bind:disabled="loading">
@@ -80,7 +84,8 @@
             @click="floodrisk.setMode('explain')">Объяснение</button>
         </div>
         <p class="mt-1 text-xs text-slate-400" x-show="mode === 'explain'">
-          Кликните по карте, чтобы увидеть важность признаков в точке.
+          Кликните по карте (перекрестие), чтобы увидеть важность признаков в точке.
+          Перетаскивание карты отключено — для перемещения вернитесь в «Просмотр».
         </p>
         <div id="explain-panel" class="mt-2" x-show="mode === 'explain'"></div>
       </section>
@@ -88,6 +93,7 @@
 
     <main class="relative flex-1">
       <div id="map" class="h-full w-full" data-coverage="{{ coverage | tojson if coverage else 'null' }}"></div>
+      <div id="experimental-banner" class="pointer-events-none absolute inset-x-0 top-0 z-[1100]"></div>
       <div id="prediction-data" class="hidden"></div>
       <div id="explanation-data" class="hidden"></div>
       <div x-show="loading" class="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center bg-white/40">

@@ -12,3 +12,10 @@ html, body {
   width: 100%;
   background: #e2e8f0;
 }
+
+/* Режим «Объяснение»: курсор-перекрестие — подсказка «кликни точку» (пан отключён). */
+#map.explain-mode,
+#map.explain-mode .leaflet-grab,
+#map.explain-mode .leaflet-interactive {
+  cursor: crosshair !important;
+}

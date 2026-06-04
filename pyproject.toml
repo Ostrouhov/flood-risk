@@ -30,6 +30,10 @@ dependencies = [
     "Pillow>=10.0",
     "reportlab>=4.0",
     "captum>=0.7",
+    # STAC-клиенты нужны рантайму для онлайн-инференса (сборка признаков по
+    # произвольному bbox через Planetary Computer). Pure-python, лёгкие.
+    "pystac-client>=0.7",
+    "planetary-computer>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -41,8 +45,7 @@ data = [
     "cdsapi>=0.7",             # ERA5 (нужен CDS_API_KEY)
     "pandas>=2.1",
     "pyarrow>=15.0",
-    "pystac-client>=0.7",      # STAC-поиск Sentinel-1 RTC
-    "planetary-computer>=1.0", # подпись SAS для анонимного доступа к PC
+    # pystac-client / planetary-computer теперь в core (нужны рантайму онлайн-инференса).
 ]
 # ml: обучение/исследование (Этап 2). Тяжёлый стек; ставится в ОТДЕЛЬНОЕ окружение
 # (.venv-ml / docker). Включает data, т.к. тренировка читает датасет.

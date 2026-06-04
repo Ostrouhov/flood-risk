@@ -31,6 +31,7 @@ app.db-wal
 # геоданные и артефакты прогонов (тяжёлые, регенерируются)
 data/raw/
 data/processed/
+data/cache/
 runs/
 exports/
 models/

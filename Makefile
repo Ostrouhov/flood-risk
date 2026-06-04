@@ -28,6 +28,7 @@ help:
 	@echo ""
 	@echo "Сервис:"
 	@echo "  make run           uvicorn с --reload"
+	@echo "  make bench         latency-бенчмарк /api/predict (M-3/NFR-1)"
 	@echo ""
 	@echo "Docker:"
 	@echo "  make docker-build  собрать образ floodrisk:latest"
@@ -101,6 +102,10 @@ verify-data:
 .PHONY: run
 run:
 	$(PYTHON) -m uvicorn floodrisk.app:app --reload --host 127.0.0.1 --port $(PORT)
+
+.PHONY: bench
+bench:
+	$(PYTHON) scripts/benchmark_latency.py
 
 # ──────────────── Docker ────────────────
 

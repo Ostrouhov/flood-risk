@@ -129,8 +129,15 @@ def test_predict_ok_returns_valid_geotiff(client, inference_env):
 def test_predict_out_of_coverage_422(client, inference_env):
     w, s, _e, _n = inference_env["coverage"]
     bbox = [w + 20, s + 5, w + 21, s + 6]  # заведомо вне покрытия
+    # source=mosaic: проверяем именно путь мозаики (auto ушёл бы в онлайн-сборку)
     r = client.post(
-        "/api/predict", json={"bbox": bbox, "scenario_id": "p100y", "model_version": "unet-test"}
+        "/api/predict",
+        json={
+            "bbox": bbox,
+            "scenario_id": "p100y",
+            "model_version": "unet-test",
+            "source": "mosaic",
+        },
     )
     assert r.status_code == 422
     assert r.json()["error"] == "bbox_out_of_coverage"
@@ -196,7 +203,12 @@ def test_ui_predict_out_of_coverage_message(client, inference_env):
     bbox = f"{w + 20},{s + 5},{w + 21},{s + 6}"
     r = client.post(
         "/ui/predict",
-        data={"scenario_id": "p100y", "model_version": "unet-test", "bbox": bbox},
+        data={
+            "scenario_id": "p100y",
+            "model_version": "unet-test",
+            "bbox": bbox,
+            "source": "mosaic",
+        },
     )
     assert r.status_code == 200
     assert "вне зоны покрытия" in r.text
@@ -276,10 +288,19 @@ def test_explain_unknown_run_404(client, inference_env):
     assert r.status_code == 404
 
 
-def test_explain_point_out_of_coverage_422(client, inference_env):
+def test_explain_out_of_coverage_falls_back_to_online(client, inference_env, monkeypatch):
+    # Клик вне покрытия мозаики → explain собирает окно онлайн (как predict).
+    # Мокаем онлайн-сборку, чтобы не ходить в сеть: ошибка загрузки → 502.
+    from floodrisk.inference import online_features
+
+    def _raise(*a, **k):
+        raise online_features.OnlineFetchError("нет сети (мок)")
+
+    monkeypatch.setattr(online_features, "build_feature_window", _raise)
     rid = _make_run(client, inference_env["coverage"])
     r = client.post("/api/explain", json={"run_id": rid, "lat": 0.0, "lon": 0.0})
-    assert r.status_code == 422
+    assert r.status_code == 502
+    assert r.json()["error"] == "online_fetch_failed"
 
 
 def test_ui_explain_returns_panel(client, inference_env):

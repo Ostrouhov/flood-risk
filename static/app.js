@@ -42,9 +42,18 @@
   state.setMode = function (m) {
     state.mode = m;
     window.dispatchEvent(new CustomEvent("mode-changed", { detail: m }));
-    if (m === "view" && state.attributionOverlay) {
-      map.removeLayer(state.attributionOverlay);
-      state.attributionOverlay = null;
+    // В режиме «Объяснение» отключаем перетаскивание карты: тогда ЛКМ — это клик
+    // (а не пан), и точка для объяснения регистрируется надёжно. Курсор — перекрестие.
+    if (m === "explain") {
+      map.dragging.disable();
+      mapEl.classList.add("explain-mode");
+    } else {
+      map.dragging.enable();
+      mapEl.classList.remove("explain-mode");
+      if (state.attributionOverlay) {
+        map.removeLayer(state.attributionOverlay);
+        state.attributionOverlay = null;
+      }
     }
   };
 
@@ -94,6 +103,9 @@
 
   map.on("click", function (e) {
     if (state.mode !== "explain" || !state.currentRunId) return;
+    // индикатор: explain вне Тулуна собирает признаки онлайн и может занять десятки секунд
+    const panel = document.getElementById("explain-panel");
+    if (panel) panel.innerHTML = '<p class="text-sm text-slate-500">Считаю важность признаков…</p>';
     htmx.ajax("POST", "/ui/explain", {
       target: "#explain-panel",
       swap: "innerHTML",

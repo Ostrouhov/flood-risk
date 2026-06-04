@@ -8,14 +8,19 @@ __pycache__/
 build/
 dist/
 
-# data and artifacts — не нужны в образе
-data/raw/
-data/processed/
+# data and artifacts — не нужны в образе (монтируются через docker-run, см. README)
+data/
 mlruns/
 runs/
 exports/
 reports/
 models/
+scripts/
+
+# БД монтируется томом, в образ не запекается
+*.db
+*.db-wal
+*.db-shm
 
 # окружения и редакторы
 .env

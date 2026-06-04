@@ -68,13 +68,24 @@ def predict(req: PredictRequest, session: Session = Depends(get_session)):
     from floodrisk.inference import service
 
     try:
-        return service.predict(session, req.bbox, req.scenario_id, req.model_version)
+        return service.predict(
+            session, req.bbox, req.scenario_id, req.model_version, source=req.source
+        )
     except service.InvalidBBox as exc:
         return JSONResponse(status_code=400, content={"error": "invalid_bbox", "detail": str(exc)})
     except service.OutOfCoverage as exc:
         return JSONResponse(
             status_code=422,
             content={"error": "bbox_out_of_coverage", "coverage_wgs84": exc.coverage_wgs84},
+        )
+    except service.BBoxTooLarge as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "bbox_too_large", "limit_km": exc.limit_km, "side_km": exc.side_km},
+        )
+    except service.OnlineFetchError as exc:
+        return JSONResponse(
+            status_code=502, content={"error": "online_fetch_failed", "detail": str(exc)}
         )
     except service.UnknownScenario as exc:
         return JSONResponse(
@@ -120,6 +131,7 @@ def export_run(run_id: str, session: Session = Depends(get_session)):
 def explain(req: ExplainRequest, session: Session = Depends(get_session)):
     """Важность признаков в точке клика. См. SRS §8.1, §7.7, FR-10."""
     from floodrisk.inference import explain as explain_mod
+    from floodrisk.inference import service
 
     try:
         return explain_mod.explain(session, req.run_id, req.lat, req.lon)
@@ -127,3 +139,7 @@ def explain(req: ExplainRequest, session: Session = Depends(get_session)):
         return JSONResponse(status_code=404, content={"error": "run_not_found"})
     except explain_mod.PointOutOfCoverage:
         return JSONResponse(status_code=422, content={"error": "point_out_of_coverage"})
+    except (service.OnlineFetchError, service.BBoxTooLarge) as exc:
+        return JSONResponse(
+            status_code=502, content={"error": "online_fetch_failed", "detail": str(exc)}
+        )

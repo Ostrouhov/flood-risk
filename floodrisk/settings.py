@@ -49,5 +49,10 @@ class Settings(BaseSettings):
     def models_dir(self) -> Path:
         return self.project_root / "models"
 
+    @property
+    def online_cache_dir(self) -> Path:
+        """Кэш тайлов онлайн-инференса (DEM/WorldCover/JRC) по произвольному bbox."""
+        return self.project_root / "data" / "cache" / "online"
+
 
 settings = Settings()
