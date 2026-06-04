@@ -72,20 +72,54 @@ def _buffer_bbox(bbox: list[float], meters: float) -> list[float]:
     return [w - dlon, s - dlat, e + dlon, n + dlat]
 
 
-def _merge_tiles_to_file(collection_dir: Path, out_path: Path) -> Path:
-    """Склеить кэшированные тайлы коллекции в один GeoTIFF (если их несколько)."""
+def _tiles_intersecting(tiles: list[Path], bbox_wgs84: list[float]) -> list[Path]:
+    """Оставить тайлы, чьи границы пересекают bbox (WGS84). Кэш онлайна персистентный и
+    копит тайлы со ВСЕХ прошлых запросов (разные регионы) — без фильтра склейка дала бы
+    глобальную мозаику и катастрофически медленный reproject."""
+    import rasterio
+    from rasterio.warp import transform_bounds
+
+    w, s, e, n = bbox_wgs84
+    keep: list[Path] = []
+    for t in tiles:
+        try:
+            with rasterio.open(t) as src:
+                tw, ts, te, tn = transform_bounds(src.crs, WGS84, *src.bounds)
+        except Exception:
+            continue
+        if not (te < w or tw > e or tn < s or ts > n):  # есть пересечение
+            keep.append(t)
+    return keep
+
+
+def _merge_tiles_to_file(collection_dir: Path, out_path: Path, bbox_wgs84=None) -> Path:
+    """Склеить кэшированные тайлы коллекции в один GeoTIFF.
+
+    Если задан ``bbox_wgs84``: оставить только пересекающие его тайлы и обрезать склейку
+    до его окна (``merge(bounds=...)``) — иначе разросшийся кэш других регионов сделал бы
+    мозаику глобальной и reproject зависал бы.
+    """
     import rasterio
     from rasterio.merge import merge
+    from rasterio.warp import transform_bounds
 
     tiles = sorted(collection_dir.glob("*.tif"))
     if not tiles:
         raise OnlineFetchError(f"нет тайлов источника в {collection_dir}")
-    if len(tiles) == 1:
+    if bbox_wgs84 is not None:
+        filtered = _tiles_intersecting(tiles, bbox_wgs84)
+        if filtered:
+            tiles = filtered
+    if len(tiles) == 1 and bbox_wgs84 is None:
         return tiles[0]
 
     srcs = [rasterio.open(t) for t in tiles]
     try:
-        mosaic, mtransform = merge(srcs)
+        merge_kwargs = {}
+        if bbox_wgs84 is not None:
+            # bounds для merge — в CRS источников (все тайлы коллекции в одной CRS).
+            merge_kwargs["bounds"] = transform_bounds(WGS84, srcs[0].crs, *bbox_wgs84)
+        mosaic, mtransform = merge(srcs, **merge_kwargs)
         profile = srcs[0].profile.copy()
     finally:
         for s in srcs:
@@ -97,11 +131,13 @@ def _merge_tiles_to_file(collection_dir: Path, out_path: Path) -> Path:
     return out_path
 
 
-def _reproject_source(collection_dir: Path, grid, resampling: str, merged_path: Path) -> np.ndarray:
-    """Склеить тайлы коллекции и репроецировать на целевую сетку → 2D-массив."""
+def _reproject_source(
+    collection_dir: Path, grid, resampling: str, merged_path: Path, bbox_wgs84=None
+) -> np.ndarray:
+    """Склеить тайлы коллекции (обрезкой до bbox) и репроецировать на целевую сетку → 2D."""
     from floodrisk.data import preprocess as pp
 
-    merged = _merge_tiles_to_file(collection_dir, merged_path)
+    merged = _merge_tiles_to_file(collection_dir, merged_path, bbox_wgs84)
     return pp.reproject_to_grid(merged, grid, resampling)
 
 
@@ -148,15 +184,17 @@ def build_feature_window(bbox_wgs84: list[float], *, cache_dir: Path, catalog=No
     # Скачанные тайлы кэшируются в cache_dir (дорогая часть), их не трогаем.
     work = Path(tempfile.mkdtemp(prefix="floodrisk_online_"))
     try:
-        dem = _reproject_source(cache_dir / "cop-dem-glo-30", grid, "bilinear", work / "dem.tif")
+        dem = _reproject_source(
+            cache_dir / "cop-dem-glo-30", grid, "bilinear", work / "dem.tif", buffered
+        )
         worldcover = _reproject_source(
-            cache_dir / "esa-worldcover", grid, "nearest", work / "worldcover.tif"
+            cache_dir / "esa-worldcover", grid, "nearest", work / "worldcover.tif", buffered
         )
         slope, aspect = pp.slope_aspect_deg(dem, RES_M)
         curv = pp.curvature(dem, RES_M)
         twi = pp.twi(dem, RES_M)
 
-        jrc_merged = _merge_tiles_to_file(cache_dir / "jrc-gsw", work / "jrc.tif")
+        jrc_merged = _merge_tiles_to_file(cache_dir / "jrc-gsw", work / "jrc.tif", buffered)
         pw_path = build_permanent_water(
             grid, jrc_merged, None, JRC_OCCURRENCE_PCT, work / "permanent_water.tif"
         )

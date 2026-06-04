@@ -98,6 +98,54 @@ def test_resolve_features_auto_uses_mosaic_in_coverage(monkeypatch):
     assert used == "mosaic"
 
 
+# ──────────────── склейка кэша по bbox (без сети, регрессия зависания) ────────────────
+
+
+def _write_tile(path, bounds, *, size=16, val=1.0):
+    """Крошечный GeoTIFF EPSG:4326 на заданных границах [W,S,E,N]."""
+    import rasterio
+    from rasterio.transform import from_bounds as tfb
+
+    w, s, e, n = bounds
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=size,
+        width=size,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=tfb(w, s, e, n, size, size),
+    ) as dst:
+        dst.write(np.full((size, size), val, dtype="float32"), 1)
+
+
+def test_tiles_intersecting_filters_other_regions(tmp_path):
+    coll = tmp_path / "cop-dem-glo-30"
+    _write_tile(coll / "moscow.tif", [37.4, 55.5, 37.8, 55.9])
+    _write_tile(coll / "krasnoyarsk.tif", [92.7, 55.9, 93.1, 56.2])
+    inter = online._tiles_intersecting(sorted(coll.glob("*.tif")), [37.5, 55.6, 37.7, 55.8])
+    assert [p.name for p in inter] == ["moscow.tif"]
+
+
+def test_merge_tiles_bounded_by_bbox(tmp_path):
+    # Регрессия: кэш с тайлами разных регионов не должен давать глобальную склейку
+    # (иначе reproject захлёбывается и онлайн-режим зависает).
+    import rasterio
+
+    coll = tmp_path / "cop-dem-glo-30"
+    _write_tile(coll / "moscow.tif", [37.4, 55.5, 37.8, 55.9])
+    _write_tile(coll / "krasnoyarsk.tif", [92.7, 55.9, 93.1, 56.2])
+    out = online._merge_tiles_to_file(coll, tmp_path / "merged.tif", [37.5, 55.6, 37.7, 55.8])
+    with rasterio.open(out) as src:
+        b = src.bounds
+    # склейка ограничена окном Москвы, не тянется до Красноярска (~92°E)
+    assert b.left >= 37.3 and b.right <= 37.9
+    assert b.bottom >= 55.4 and b.top <= 56.0
+
+
 # ──────────────── реальная сборка (сеть) ────────────────
 
 

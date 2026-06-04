@@ -56,7 +56,13 @@ def feature_stack_path(dataset_version: str) -> Path:
 def _load_norm_stats(config_path: str) -> tuple[np.ndarray, np.ndarray]:
     import yaml
 
-    cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
+    # config_path в БД хранится относительным (например 'configs/unet_v1.yaml') →
+    # резолвим от корня проекта, чтобы работать независимо от cwd процесса (Docker WORKDIR,
+    # запуск не из корня и т.п.), а не только когда cwd == корень.
+    cfg_path = Path(config_path)
+    if not cfg_path.is_absolute():
+        cfg_path = settings.project_root / cfg_path
+    cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
     return ft.load_stats(settings.project_root / cfg["data"]["norm_stats"])
 
 

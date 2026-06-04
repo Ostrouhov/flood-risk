@@ -56,7 +56,14 @@ def load_model(name: str, version: str, checkpoint_path: str) -> LoadedModel:
     key = (name, version)
     if key in _CACHE:
         return _CACHE[key]
-    suffix = Path(checkpoint_path).suffix
+    # checkpoint_path в БД относительный → резолвим от корня проекта (cwd-независимость).
+    ckpt = Path(checkpoint_path)
+    if not ckpt.is_absolute():
+        from floodrisk.settings import settings
+
+        ckpt = settings.project_root / ckpt
+    checkpoint_path = str(ckpt)
+    suffix = ckpt.suffix
     if suffix == ".pt":
         kind, predict = "unet", _load_torchscript(checkpoint_path)
     elif suffix == ".pkl":
