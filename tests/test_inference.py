@@ -335,3 +335,6 @@ def test_ui_explain_returns_panel(client, inference_env):
     assert r.status_code == 200
     assert "Важность признаков" in r.text
     assert 'id="explanation-data"' in r.text
+    # B2: строки рейтинга кликабельны → переключают слой атрибуции на карте.
+    assert "floodrisk.showAttribution(" in r.text
+    assert 'class="attr-row' in r.text

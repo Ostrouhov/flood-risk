@@ -1,4 +1,4 @@
-{# Панель режима «Объяснение»: топ-N признаков + данные слоёв важности для JS. SRS §7.7, §9.2. #}
+{# Панель режима «Объяснение»: топ-N признаков (кликабельны → слой на карте) + данные для JS. SRS §7.7, §9.2. #}
 <div
   id="explanation-data"
   class="hidden"
@@ -8,14 +8,39 @@
 ></div>
 
 <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Важность признаков (в точке)</h3>
-<ol class="space-y-1 text-sm">
+<ol class="space-y-0.5 text-sm">
   {% for f in ranking %}
-  <li class="flex items-center justify-between">
-    <span>{{ f.label }}</span>
-    <span class="font-mono text-slate-600">{{ "%.0f"|format(f.importance * 100) }}%</span>
+  <li>
+    {% if attribution_layers %}
+    <button type="button" data-attr-index="{{ loop.index0 }}"
+      class="attr-row flex w-full items-center justify-between rounded px-1 py-0.5 text-left hover:bg-slate-100"
+      onclick="floodrisk.showAttribution({{ loop.index0 }})">
+      <span>{{ f.label }}</span>
+      <span class="font-mono text-slate-600">{{ "%.0f"|format(f.importance * 100) }}%</span>
+    </button>
+    {% else %}
+    <div class="flex items-center justify-between px-1">
+      <span>{{ f.label }}</span>
+      <span class="font-mono text-slate-600">{{ "%.0f"|format(f.importance * 100) }}%</span>
+    </div>
+    {% endif %}
   </li>
   {% endfor %}
 </ol>
+
 {% if attribution_layers %}
-<p class="mt-2 text-xs text-slate-400">Слой важности топ-признака наложен на карту (шкала magma).</p>
+<div class="mt-2 space-y-1 text-xs text-slate-500">
+  <div>Слой на карте: <span id="attr-current" class="font-medium text-slate-700">{{ attribution_layers[0].label }}</span></div>
+  <div class="flex items-center gap-1">
+    <span>− вклад</span>
+    <span class="h-2 flex-1 rounded"
+          style="background:linear-gradient(to right,#000004,#3b0f70,#8c2981,#de4968,#fe9f6d,#fcfdbf)"></span>
+    <span>+ вклад</span>
+  </div>
+  <p class="text-slate-400">Клик по признаку наложит его слой важности (Integrated Gradients, magma).</p>
+</div>
+{% else %}
+<p class="mt-2 text-xs text-slate-400">
+  Глобальная важность признаков baseline (feature_importances_), без послойных карт.
+</p>
 {% endif %}

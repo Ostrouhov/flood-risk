@@ -230,6 +230,32 @@
   state.setOpacity = function (v) {
     state.opacity = Number(v);
     if (state.currentOverlay) state.currentOverlay.setOpacity(state.opacity);
+    if (state.cmpLeft) state.cmpLeft.setOpacity(state.opacity);
+    if (state.cmpRight) state.cmpRight.setOpacity(state.opacity);
+  };
+
+  // ── Объяснимость: переключение слоёв атрибуции (B2) ───────────────────────
+  state.showAttribution = function (i) {
+    const layers = state.attributionLayers || [];
+    if (!layers[i]) return;
+    if (state.attributionOverlay) {
+      map.removeLayer(state.attributionOverlay);
+      state.attributionOverlay = null;
+    }
+    const lyr = layers[i];
+    state.attributionOverlay = L.imageOverlay(lyr.png_url, bbox2bounds(lyr.bounds_wgs84), {
+      opacity: 0.6,
+    }).addTo(map);
+    const panel = document.getElementById("explain-panel");
+    if (panel) {
+      panel.querySelectorAll(".attr-row").forEach((el) => {
+        const active = String(el.dataset.attrIndex) === String(i);
+        el.classList.toggle("bg-slate-200", active);
+        el.classList.toggle("font-medium", active);
+      });
+      const cur = document.getElementById("attr-current");
+      if (cur) cur.textContent = lyr.label;
+    }
   };
 
   function checkedValue(name) {
@@ -242,14 +268,217 @@
     const model_version = checkedValue("model_version");
     if (!scenario_id || !model_version || !state.zoneRect) return;
     if (!updateZoneSize()) return; // гард: зона слишком велика для онлайна
+    exitCompare(true); // обычный расчёт выходит из режима сравнения
     const bbox = zoneBbox().join(",");
-    window.dispatchEvent(new Event("predict-start"));
+    // online=true вне покрытия → оверлей покажет подсказку про долгий сбор данных.
+    const detail = { online: !zoneInCoverage() };
+    window.dispatchEvent(new CustomEvent("predict-start", { detail }));
     htmx
       .ajax("POST", "/ui/predict", {
         target: "#prediction-data",
         swap: "outerHTML",
         values: { scenario_id, model_version, bbox },
       })
+      .finally(() => window.dispatchEvent(new Event("predict-end")));
+  };
+
+  // Тост (C3): прокидываем в Alpine через событие.
+  state.toast = function (msg, type) {
+    window.dispatchEvent(new CustomEvent("app-toast", { detail: { msg, type: type || "error" } }));
+  };
+
+  // Отмена расчёта (C2): прерываем активный XHR /ui/predict.
+  state.cancelRecalc = function () {
+    if (state.currentXhr) {
+      state.currentXhr.abort();
+      state.currentXhr = null;
+      state.toast("Расчёт отменён", "error");
+    }
+  };
+
+  // ── Сравнение моделей: шторка U-Net ↔ baseline (B1) ───────────────────────
+  // Две imageOverlay в отдельных панах + вертикальный разделитель; клип паны в
+  // координатах layer-point (как leaflet-side-by-side) → шторка переживает пан/зум.
+  let dividerX = null;
+
+  function ensureComparePanes() {
+    if (!map.getPane("cmpL")) {
+      map.createPane("cmpL").style.zIndex = 410;
+      map.createPane("cmpR").style.zIndex = 420;
+    }
+  }
+
+  function updateClip() {
+    if (!state.compare) return;
+    const size = map.getSize();
+    const nw = map.containerPointToLayerPoint([0, 0]);
+    const se = map.containerPointToLayerPoint([size.x, size.y]);
+    const clipX = nw.x + dividerX;
+    map.getPane("cmpL").style.clip =
+      "rect(" + [nw.y, clipX, se.y, nw.x].join("px,") + "px)";
+    map.getPane("cmpR").style.clip =
+      "rect(" + [nw.y, se.x, se.y, clipX].join("px,") + "px)";
+  }
+
+  function positionDivider() {
+    if (state.divider) state.divider.style.left = dividerX + "px";
+  }
+
+  function createDivider() {
+    if (state.divider) return;
+    const d = document.createElement("div");
+    d.className = "cmp-divider";
+    d.innerHTML = '<div class="cmp-handle">↔</div>';
+    mapEl.appendChild(d);
+    state.divider = d;
+    const lblL = document.createElement("div");
+    lblL.className = "cmp-label";
+    lblL.style.left = "8px";
+    lblL.textContent = "U-Net";
+    const lblR = document.createElement("div");
+    lblR.className = "cmp-label";
+    lblR.style.right = "8px";
+    lblR.textContent = "baseline";
+    mapEl.appendChild(lblL);
+    mapEl.appendChild(lblR);
+    state.cmpLabels = [lblL, lblR];
+
+    dividerX = mapEl.clientWidth / 2;
+    positionDivider();
+
+    let dragging = false;
+    const onDown = (e) => {
+      dragging = true;
+      e.preventDefault();
+    };
+    const onMove = (ev) => {
+      if (!dragging) return;
+      const rect = mapEl.getBoundingClientRect();
+      const cx = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+      dividerX = Math.max(0, Math.min(mapEl.clientWidth, cx));
+      positionDivider();
+      updateClip();
+    };
+    const onUp = () => {
+      dragging = false;
+    };
+    d.addEventListener("mousedown", onDown);
+    d.addEventListener("touchstart", onDown);
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("touchmove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.addEventListener("touchend", onUp);
+    state._cmpHandlers = { onMove, onUp };
+  }
+
+  function renderCompareTable(unet, base) {
+    const tbl = document.getElementById("compare-table");
+    if (!tbl) return;
+    const a = unet.aggregates;
+    const b = base.aggregates;
+    const row = (label, ua, ba) =>
+      `<tr><td class="py-0.5 text-slate-600">${label}</td>` +
+      `<td class="text-right font-mono">${ua}</td>` +
+      `<td class="text-right font-mono">${ba}</td></tr>`;
+    tbl.innerHTML =
+      '<table class="w-full text-xs"><thead><tr class="text-slate-400">' +
+      '<th class="text-left font-normal"></th><th class="text-right font-normal">U-Net</th>' +
+      '<th class="text-right font-normal">baseline</th></tr></thead><tbody>' +
+      row("средняя p", a.mean_p.toFixed(3), b.mean_p.toFixed(3)) +
+      row("p&gt;0.5", (a.fraction_p_gt_0_5 * 100).toFixed(1) + "%", (b.fraction_p_gt_0_5 * 100).toFixed(1) + "%") +
+      row("p&gt;0.8", (a.fraction_p_gt_0_8 * 100).toFixed(1) + "%", (b.fraction_p_gt_0_8 * 100).toFixed(1) + "%") +
+      "</tbody></table>";
+  }
+
+  function exitCompare(silent) {
+    if (!state.compare && !state.cmpLeft) return;
+    map.off("move zoom moveend zoomend", updateClip);
+    if (state.cmpLeft) {
+      map.removeLayer(state.cmpLeft);
+      state.cmpLeft = null;
+    }
+    if (state.cmpRight) {
+      map.removeLayer(state.cmpRight);
+      state.cmpRight = null;
+    }
+    if (state.divider) {
+      state.divider.remove();
+      state.divider = null;
+    }
+    if (state.cmpLabels) {
+      state.cmpLabels.forEach((l) => l.remove());
+      state.cmpLabels = null;
+    }
+    if (state._cmpHandlers) {
+      document.removeEventListener("mousemove", state._cmpHandlers.onMove);
+      document.removeEventListener("touchmove", state._cmpHandlers.onMove);
+      document.removeEventListener("mouseup", state._cmpHandlers.onUp);
+      document.removeEventListener("touchend", state._cmpHandlers.onUp);
+      state._cmpHandlers = null;
+    }
+    if (map.getPane("cmpL")) map.getPane("cmpL").style.clip = "";
+    if (map.getPane("cmpR")) map.getPane("cmpR").style.clip = "";
+    state.compare = false;
+    const exitBtn = document.getElementById("compare-exit");
+    if (exitBtn) exitBtn.classList.add("hidden");
+    const tbl = document.getElementById("compare-table");
+    if (tbl) tbl.innerHTML = "";
+    if (!silent) state.toast("Сравнение закрыто", "success");
+  }
+  state.exitCompare = function () {
+    exitCompare(false);
+  };
+
+  function enterCompare(unet, base) {
+    exitCompare(true);
+    if (state.currentOverlay) {
+      map.removeLayer(state.currentOverlay);
+      state.currentOverlay = null;
+    }
+    ensureComparePanes();
+    const ub = bbox2bounds(unet.bounds_wgs84);
+    state.cmpLeft = L.imageOverlay(unet.prediction_png_url, ub, {
+      opacity: state.opacity,
+      pane: "cmpL",
+    }).addTo(map);
+    state.cmpRight = L.imageOverlay(base.prediction_png_url, bbox2bounds(base.bounds_wgs84), {
+      opacity: state.opacity,
+      pane: "cmpR",
+    }).addTo(map);
+    map.fitBounds(ub);
+    state.compare = true;
+    createDivider();
+    updateClip();
+    map.on("move zoom moveend zoomend", updateClip);
+    renderCompareTable(unet, base);
+    const exitBtn = document.getElementById("compare-exit");
+    if (exitBtn) exitBtn.classList.remove("hidden");
+  }
+
+  state.compareModels = function () {
+    if (!state.zoneRect) return;
+    if (!updateZoneSize()) return;
+    const scenario_id = checkedValue("scenario_id");
+    if (!scenario_id) return;
+    const bbox = zoneBbox();
+    const post = (mv) =>
+      fetch("/api/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bbox, scenario_id, model_version: mv }),
+      }).then((r) => r.json());
+    window.dispatchEvent(
+      new CustomEvent("predict-start", { detail: { online: !zoneInCoverage() } }),
+    );
+    Promise.all([post("unet-v1"), post("baseline-v1")])
+      .then(([unet, base]) => {
+        if (unet.error || base.error) {
+          state.toast("Не удалось сравнить модели", "error");
+          return;
+        }
+        enterCompare(unet, base);
+      })
+      .catch(() => state.toast("Ошибка сравнения моделей", "error"))
       .finally(() => window.dispatchEvent(new Event("predict-end")));
   };
 
@@ -275,11 +504,14 @@
             : "Вне зоны расчёта",
         );
       })
-      .catch(() => popup.setContent("Ошибка запроса"));
+      .catch(() => {
+        popup.setContent("Ошибка запроса");
+        state.toast("Не удалось получить значение в точке", "error");
+      });
   }
 
   map.on("click", function (e) {
-    if (state.drawing) return; // идёт рисование зоны — клик не трактуем
+    if (state.drawing || state.compare) return; // рисование/сравнение — клик не трактуем
     if (state.mode === "explain") {
       if (!state.currentRunId) return;
       const panel = document.getElementById("explain-panel");
@@ -317,6 +549,12 @@
         map.removeLayer(state.currentOverlay);
         state.currentOverlay = null;
       }
+      if (el.dataset.error) {
+        // Ошибка predict (predict_error.html) — продублируем тостом (сайдбар легко не заметить).
+        const aggEl = document.getElementById("aggregates");
+        state.toast((aggEl && aggEl.textContent.trim()) || "Ошибка расчёта", "error");
+        return;
+      }
       if (png && boundsStr) {
         const bounds = bbox2bounds(JSON.parse(boundsStr));
         state.currentOverlay = L.imageOverlay(png, bounds, {
@@ -343,18 +581,35 @@
       } catch (e) {
         layers = [];
       }
-      if (layers.length) {
-        const top = layers[0]; // слой важности топ-признака
-        state.attributionOverlay = L.imageOverlay(top.png_url, bbox2bounds(top.bounds_wgs84), {
-          opacity: 0.6,
-        }).addTo(map);
-      }
+      state.attributionLayers = layers;
+      if (layers.length) state.showAttribution(0); // дефолт — топ-признак
     }
   });
 
   document.body.addEventListener("download-ready", function (e) {
     const url = e.detail && e.detail.url;
     if (url) window.location = url;
+  });
+
+  // Захват XHR расчёта (C2): для отмены и клиентского таймаута.
+  document.body.addEventListener("htmx:beforeSend", function (evt) {
+    const cfg = evt.detail && evt.detail.requestConfig;
+    const path = (cfg && cfg.path) || (evt.detail.pathInfo && evt.detail.pathInfo.requestPath);
+    if (path && path.indexOf("/ui/predict") !== -1 && evt.detail.xhr) {
+      state.currentXhr = evt.detail.xhr;
+      state.currentXhr.timeout = 120000; // клиентский таймаут 120с
+    }
+  });
+  document.body.addEventListener("htmx:timeout", function (evt) {
+    const path = evt.detail && evt.detail.pathInfo && evt.detail.pathInfo.requestPath;
+    if (!path || path.indexOf("/ui/predict") !== -1) {
+      state.toast("Расчёт прерван по таймауту (120 с)", "error");
+    }
+  });
+  document.body.addEventListener("htmx:afterRequest", function (evt) {
+    const cfg = evt.detail && evt.detail.requestConfig;
+    const path = cfg && cfg.path;
+    if (path && path.indexOf("/ui/predict") !== -1) state.currentXhr = null;
   });
 
   // Стартовая зона = центр покрытия (или текущий вид вне покрытия).

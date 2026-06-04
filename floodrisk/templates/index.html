@@ -1,9 +1,26 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="flex h-full w-full flex-col" x-data="{ loading: false, mode: 'view', opacity: 0.7 }"
-     @predict-start.window="loading = true" @predict-end.window="loading = false"
-     @mode-changed.window="mode = $event.detail">
+<div class="flex h-full w-full flex-col"
+     x-data="{
+       loading: false, mode: 'view', opacity: 0.7,
+       toasts: [], _tid: 0,
+       elapsed: 0, _timer: null, online: false,
+       pushToast(d) {
+         const id = ++this._tid;
+         this.toasts.push({ id, msg: d.msg, type: d.type || 'error' });
+         setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 5000);
+       },
+       startLoad(d) {
+         this.loading = true; this.online = !!(d && d.online); this.elapsed = 0;
+         clearInterval(this._timer);
+         this._timer = setInterval(() => { this.elapsed += 1; }, 1000);
+       },
+       endLoad() { this.loading = false; clearInterval(this._timer); this._timer = null; }
+     }"
+     @predict-start.window="startLoad($event.detail)" @predict-end.window="endLoad()"
+     @mode-changed.window="mode = $event.detail"
+     @app-toast.window="pushToast($event.detail)">
   <header class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
     <h1 class="text-lg font-semibold">floodrisk <span class="text-xs font-normal text-slate-500">прототип</span></h1>
     <div class="text-xs text-slate-500">модель: <span class="font-mono">{{ model_label }}</span></div>
@@ -97,6 +114,21 @@
       </section>
 
       <section>
+        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Сравнение моделей</h2>
+        <button id="compare-btn"
+          class="w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
+          onclick="floodrisk.compareModels()" x-bind:disabled="loading">U-Net ↔ baseline (шторка)</button>
+        <button id="compare-exit"
+          class="mt-2 hidden w-full rounded border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
+          onclick="floodrisk.exitCompare()">× Выйти из сравнения</button>
+        <div id="compare-table" class="mt-2"></div>
+        <p class="mt-1 text-xs text-slate-400">
+          Сравнивает обе модели на текущей зоне и сценарии. Тяните разделитель: слева U-Net,
+          справа baseline. Численная суть вопроса M-2 — в таблице.
+        </p>
+      </section>
+
+      <section>
         <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Экспорт</h2>
         <button id="export-btn"
           class="w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
@@ -128,7 +160,14 @@
       <div id="prediction-data" class="hidden"></div>
       <div id="explanation-data" class="hidden"></div>
       <div x-show="loading" class="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center bg-white/40">
-        <div class="rounded bg-slate-900 px-4 py-2 text-sm text-white">Расчёт карты…</div>
+        <div class="pointer-events-auto rounded-lg bg-slate-900 px-5 py-3 text-center text-sm text-white shadow-lg">
+          <div>Расчёт карты… <span class="font-mono" x-text="elapsed + ' с'"></span></div>
+          <div x-show="online" class="mt-1 text-xs text-amber-300">
+            Онлайн-режим: сбор данных может занять до минуты
+          </div>
+          <button class="mt-2 rounded border border-white/40 px-3 py-1 text-xs hover:bg-white/10"
+            @click="floodrisk.cancelRecalc()">Отменить</button>
+        </div>
       </div>
     </main>
   </div>
@@ -143,5 +182,14 @@
       <span class="flex items-center gap-1"><span class="inline-block h-3 w-6" style="background:#fde725"></span>1.0</span>
     </div>
   </footer>
+
+  {# Тосты ошибок (C3): снизу-справа, авто-дисмисс ~5с. #}
+  <div class="pointer-events-none fixed bottom-4 right-4 z-[2000] flex flex-col gap-2">
+    <template x-for="t in toasts" :key="t.id">
+      <div class="pointer-events-auto max-w-xs rounded px-3 py-2 text-sm text-white shadow-lg"
+           :class="t.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'"
+           x-text="t.msg"></div>
+    </template>
+  </div>
 </div>
 {% endblock %}

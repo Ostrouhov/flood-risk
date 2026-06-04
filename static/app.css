@@ -6,11 +6,52 @@ html, body {
   height: 100%;
 }
 
-/* Leaflet требует явной высоты у контейнера. */
+/* Leaflet требует явной высоты у контейнера; position — якорь для разделителя/меток сравнения. */
 #map {
+  position: relative;
   height: 100%;
   width: 100%;
   background: #e2e8f0;
+}
+
+/* Шторка сравнения моделей (B1): вертикальный разделитель + круглая ручка + метки слева/справа. */
+.cmp-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+  z-index: 1200;
+  cursor: ew-resize;
+}
+.cmp-handle {
+  position: absolute;
+  top: 50%;
+  left: -15px;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  background: #1d4ed8;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: ew-resize;
+}
+.cmp-label {
+  position: absolute;
+  top: 8px;
+  z-index: 1200;
+  background: rgba(15, 23, 42, 0.82);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  pointer-events: none;
 }
 
 /* Режим «Объяснение» и рисование зоны: курсор-перекрестие (пан отключён). */
