@@ -282,6 +282,31 @@ def test_explain_returns_ranking_and_attributions(client, inference_env):
     assert (settings.runs_dir / rid / "attribution" / f"{top['feature']}.png").exists()
 
 
+def test_point_inspector_returns_probability(client, inference_env):
+    rid = _make_run(client, inference_env["coverage"])
+    lat, lon = _center(inference_env["coverage"])
+    r = client.get(f"/api/runs/{rid}/point", params={"lat": lat, "lon": lon})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["in_bounds"] is True
+    assert 0.0 <= body["probability"] <= 1.0
+
+
+def test_point_inspector_outside_raster_returns_null(client, inference_env):
+    rid = _make_run(client, inference_env["coverage"])
+    # Точка заведомо вне растра запуска (далеко за пределами стека).
+    r = client.get(f"/api/runs/{rid}/point", params={"lat": 0.0, "lon": 0.0})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["in_bounds"] is False
+    assert body["probability"] is None
+
+
+def test_point_inspector_unknown_run_404(client, inference_env):
+    r = client.get("/api/runs/ghost/point", params={"lat": 54.6, "lon": 100.7})
+    assert r.status_code == 404
+
+
 def test_explain_unknown_run_404(client, inference_env):
     lat, lon = _center(inference_env["coverage"])
     r = client.post("/api/explain", json={"run_id": "ghost", "lat": lat, "lon": lon})

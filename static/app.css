@@ -13,9 +13,12 @@ html, body {
   background: #e2e8f0;
 }
 
-/* Режим «Объяснение»: курсор-перекрестие — подсказка «кликни точку» (пан отключён). */
+/* Режим «Объяснение» и рисование зоны: курсор-перекрестие (пан отключён). */
 #map.explain-mode,
 #map.explain-mode .leaflet-grab,
-#map.explain-mode .leaflet-interactive {
+#map.explain-mode .leaflet-interactive,
+#map.draw-mode,
+#map.draw-mode .leaflet-grab,
+#map.draw-mode .leaflet-interactive {
   cursor: crosshair !important;
 }

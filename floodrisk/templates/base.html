@@ -19,7 +19,7 @@
   ></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
 
-  <link rel="stylesheet" href="/static/app.css" />
+  <link rel="stylesheet" href="/static/app.css?v={{ static_v('app.css') }}" />
 </head>
 <body class="h-screen w-screen overflow-hidden bg-slate-50 text-slate-900">
   {% block content %}{% endblock %}
@@ -29,6 +29,6 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v={{ static_v('app.js') }}"></script>
 </body>
 </html>

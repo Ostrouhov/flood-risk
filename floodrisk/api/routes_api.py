@@ -14,6 +14,7 @@ from floodrisk.api.schemas import (
     ExportResponse,
     HealthResponse,
     ModelVersionOut,
+    PointResponse,
     PredictRequest,
     PredictResponse,
     RunOut,
@@ -113,6 +114,18 @@ def get_run_meta(run_id: str, session: Session = Depends(get_session)) -> RunOut
         latency_ms=run.latency_ms,
         status=run.status,
     )
+
+
+@router.get("/runs/{run_id}/point", response_model=PointResponse)
+def get_run_point(run_id: str, lat: float, lon: float) -> PointResponse:
+    """Вероятность затопления в точке (инспектор точки). См. FR-9, режим «Просмотр»."""
+    from floodrisk.inference import service
+
+    try:
+        prob = service.sample_point(run_id, lat, lon)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="run_not_found") from None
+    return PointResponse(lat=lat, lon=lon, probability=prob, in_bounds=prob is not None)
 
 
 @router.post("/runs/{run_id}/export", response_model=ExportResponse)

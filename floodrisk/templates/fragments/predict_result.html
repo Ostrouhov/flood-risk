@@ -1,6 +1,25 @@
 {# Ответ /ui/predict: обновляет #prediction-data (триггер Leaflet) + #aggregates (OOB). Этап 4. #}
 {% include "fragments/map_layer.html" %}
 {% include "fragments/aggregates.html" %}
+{# OOB-карточка метаданных расчёта: источник, латентность, сценарий, модель (A3). #}
+<div id="run-meta" hx-swap-oob="true" class="space-y-1 text-xs text-slate-500">
+  <div class="flex justify-between">
+    <span>Источник</span>
+    <span class="font-mono {{ 'text-amber-600' if metadata.source == 'online' else 'text-slate-700' }}">
+      {{ 'онлайн (эксперимент.)' if metadata.source == 'online' else 'мозаика (Тулун)' }}
+    </span>
+  </div>
+  <div class="flex justify-between">
+    <span>Время расчёта</span>
+    <span class="font-mono text-slate-700">{{ "%.2f"|format(metadata.latency_ms / 1000) }} с</span>
+  </div>
+  <div class="flex justify-between">
+    <span>Сценарий</span><span class="font-mono text-slate-700">{{ metadata.scenario_id }}</span>
+  </div>
+  <div class="flex justify-between">
+    <span>Модель</span><span class="font-mono text-slate-700">{{ metadata.model_version }}</span>
+  </div>
+</div>
 {# OOB-баннер «экспериментально» (онлайн-режим вне валидированного региона). Пустой → сброс. #}
 <div id="experimental-banner" hx-swap-oob="true"
      class="pointer-events-none absolute inset-x-0 top-0 z-[1100]">

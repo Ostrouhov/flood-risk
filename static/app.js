@@ -1,7 +1,8 @@
-// Императивный мост HTMX → Leaflet (Этап 4). См. SRS §9.3.
-//   - floodrisk.recalc() — собрать сценарий/модель/bbox и POST /ui/predict
-//   - htmx:afterSwap на #prediction-data → пересоздать L.imageOverlay
-//   - floodrisk.exportRun() — POST /ui/export; download-ready → скачивание
+// Императивный мост HTMX → Leaflet (Этап 4, расширен Кластером 1). См. SRS §9.3.
+//   - выбранная зона = видимый редактируемый прямоугольник на карте (рисуется мышью)
+//   - floodrisk.recalc() — собрать сценарий/модель/bbox(зоны) и POST /ui/predict
+//   - инспектор точки: клик в режиме «Просмотр» → вероятность в точке (GET /api/runs/{id}/point)
+//   - floodrisk.setOpacity() — прозрачность overlay; floodrisk.exportRun() — экспорт ZIP
 
 (function () {
   "use strict";
@@ -16,6 +17,8 @@
     coverage = null;
   }
 
+  const MAX_BBOX_KM = 30; // онлайн-кап (см. online_features.MAX_BBOX_KM)
+
   const center = coverage
     ? [(coverage[1] + coverage[3]) / 2, (coverage[0] + coverage[2]) / 2]
     : [54.6, 100.7];
@@ -24,11 +27,23 @@
     maxZoom: 19,
     attribution: "© OpenStreetMap contributors",
   }).addTo(map);
+
+  // Контур валидированного покрытия (A6): пунктир, не перехватывает клики.
   if (coverage) {
-    map.fitBounds([
+    const covBounds = [
       [coverage[1], coverage[0]],
       [coverage[3], coverage[2]],
-    ]);
+    ];
+    L.rectangle(covBounds, {
+      color: "#0ea5e9",
+      weight: 1,
+      dashArray: "6 4",
+      fill: false,
+      interactive: false,
+    })
+      .addTo(map)
+      .bindTooltip("Валидированная зона (Тулун-2019)", { sticky: true });
+    map.fitBounds(covBounds);
   }
 
   const state = {
@@ -37,18 +52,173 @@
     currentRunId: null,
     attributionOverlay: null,
     mode: "view",
+    opacity: 0.7,
+    zoneRect: null,
+    drawing: false,
   };
 
+  // ── Зона (выбранный bbox) ─────────────────────────────────────────────────
+  function defaultZoneBounds() {
+    if (!coverage) {
+      const b = map.getBounds();
+      return L.latLngBounds(
+        [b.getSouth(), b.getWest()],
+        [b.getNorth(), b.getEast()],
+      );
+    }
+    const [w, s, e, n] = coverage;
+    const cw = e - w;
+    const ch = n - s;
+    return L.latLngBounds([s + ch * 0.35, w + cw * 0.35], [s + ch * 0.6, w + cw * 0.6]);
+  }
+
+  function setZone(latLngBounds) {
+    const b = L.latLngBounds(latLngBounds);
+    if (state.zoneRect) {
+      state.zoneRect.setBounds(b);
+    } else {
+      // interactive:false — клики проходят к карте (нужно для инспектора точки).
+      state.zoneRect = L.rectangle(b, {
+        color: "#1d4ed8",
+        weight: 2,
+        fillOpacity: 0.05,
+        interactive: false,
+      }).addTo(map);
+    }
+    updateZoneSize();
+  }
+
+  function zoneBbox() {
+    const b = state.zoneRect.getBounds();
+    return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+  }
+
+  function zoneSizeKm() {
+    const [w, s, e, n] = zoneBbox();
+    const latMid = (s + n) / 2;
+    const hKm = (n - s) * 111.0;
+    const wKm = (e - w) * 111.0 * Math.cos((latMid * Math.PI) / 180);
+    return [Math.abs(wKm), Math.abs(hKm)];
+  }
+
+  function zoneInCoverage() {
+    if (!coverage) return false;
+    const [w, s, e, n] = zoneBbox();
+    return w >= coverage[0] && s >= coverage[1] && e <= coverage[2] && n <= coverage[3];
+  }
+
+  // Обновляет подпись размера и гард (C1). Возвращает true, если зона допустима.
+  function updateZoneSize() {
+    if (!state.zoneRect) return false;
+    const [wKm, hKm] = zoneSizeKm();
+    const sizeEl = document.getElementById("zone-size");
+    if (sizeEl) {
+      const where = zoneInCoverage() ? "мозаика" : "онлайн";
+      sizeEl.textContent = `≈ ${wKm.toFixed(1)} × ${hKm.toFixed(1)} км · ${where}`;
+    }
+    const tooBig = Math.max(wKm, hKm) > MAX_BBOX_KM && !zoneInCoverage();
+    const warnEl = document.getElementById("zone-warning");
+    if (warnEl) {
+      if (tooBig) {
+        warnEl.textContent = `Слишком большая зона для онлайна (>${MAX_BBOX_KM} км). Уменьшите выделение или выберите зону внутри Тулуна.`;
+        warnEl.classList.remove("hidden");
+      } else {
+        warnEl.classList.add("hidden");
+      }
+    }
+    const recalcBtn = document.getElementById("recalc-btn");
+    if (recalcBtn) recalcBtn.disabled = tooBig;
+    return !tooBig;
+  }
+
+  state.resetZone = function () {
+    setZone(defaultZoneBounds());
+    if (coverage) {
+      map.fitBounds([
+        [coverage[1], coverage[0]],
+        [coverage[3], coverage[2]],
+      ]);
+    }
+  };
+
+  // ── Рисование зоны мышью (rubber-band, без плагинов) (A1) ──────────────────
+  let drawStart = null;
+  let drawTemp = null;
+
+  state.armDraw = function () {
+    state.drawing = true;
+    map.dragging.disable();
+    mapEl.classList.add("draw-mode");
+    const btn = document.getElementById("draw-btn");
+    if (btn) {
+      btn.textContent = "Рисуйте…";
+      btn.classList.add("bg-slate-200");
+    }
+  };
+
+  function disarmDraw() {
+    state.drawing = false;
+    if (state.mode !== "explain") map.dragging.enable();
+    mapEl.classList.remove("draw-mode");
+    const btn = document.getElementById("draw-btn");
+    if (btn) {
+      btn.textContent = "Выделить на карте";
+      btn.classList.remove("bg-slate-200");
+    }
+  }
+
+  map.on("mousedown", function (e) {
+    if (!state.drawing) return;
+    drawStart = e.latlng;
+    if (drawTemp) {
+      map.removeLayer(drawTemp);
+      drawTemp = null;
+    }
+  });
+
+  map.on("mousemove", function (e) {
+    if (!state.drawing || !drawStart) return;
+    const b = L.latLngBounds(drawStart, e.latlng);
+    if (drawTemp) {
+      drawTemp.setBounds(b);
+    } else {
+      drawTemp = L.rectangle(b, {
+        color: "#1d4ed8",
+        weight: 2,
+        dashArray: "4 3",
+        fillOpacity: 0.05,
+        interactive: false,
+      }).addTo(map);
+    }
+  });
+
+  map.on("mouseup", function (e) {
+    if (!state.drawing || !drawStart) return;
+    const b = L.latLngBounds(drawStart, e.latlng);
+    drawStart = null;
+    if (drawTemp) {
+      map.removeLayer(drawTemp);
+      drawTemp = null;
+    }
+    // Отбрасываем «клик без перетаскивания» (вырожденная зона).
+    if (b.getNorth() - b.getSouth() < 1e-6 || b.getEast() - b.getWest() < 1e-6) {
+      disarmDraw();
+      return;
+    }
+    setZone(b);
+    disarmDraw();
+  });
+
+  // ── Режим «Просмотр»/«Объяснение» ─────────────────────────────────────────
   state.setMode = function (m) {
     state.mode = m;
     window.dispatchEvent(new CustomEvent("mode-changed", { detail: m }));
-    // В режиме «Объяснение» отключаем перетаскивание карты: тогда ЛКМ — это клик
-    // (а не пан), и точка для объяснения регистрируется надёжно. Курсор — перекрестие.
+    // В режиме «Объяснение» отключаем перетаскивание: тогда ЛКМ — клик (а не пан).
     if (m === "explain") {
       map.dragging.disable();
       mapEl.classList.add("explain-mode");
     } else {
-      map.dragging.enable();
+      if (!state.drawing) map.dragging.enable();
       mapEl.classList.remove("explain-mode");
       if (state.attributionOverlay) {
         map.removeLayer(state.attributionOverlay);
@@ -57,21 +227,11 @@
     }
   };
 
-  function centerBbox() {
-    const [w, s, e, n] = coverage;
-    const cw = e - w;
-    const ch = n - s;
-    return [w + cw * 0.35, s + ch * 0.35, w + cw * 0.6, s + ch * 0.6];
-  }
-  function viewBbox() {
-    const b = map.getBounds();
-    return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
-  }
-  function selectedBbox() {
-    const mode = document.getElementById("bbox-mode").value;
-    if (mode === "view" || !coverage) return viewBbox();
-    return centerBbox();
-  }
+  state.setOpacity = function (v) {
+    state.opacity = Number(v);
+    if (state.currentOverlay) state.currentOverlay.setOpacity(state.opacity);
+  };
+
   function checkedValue(name) {
     const el = document.querySelector('input[name="' + name + '"]:checked');
     return el ? el.value : "";
@@ -80,8 +240,9 @@
   state.recalc = function () {
     const scenario_id = checkedValue("scenario_id");
     const model_version = checkedValue("model_version");
-    if (!scenario_id || !model_version) return;
-    const bbox = selectedBbox().join(",");
+    if (!scenario_id || !model_version || !state.zoneRect) return;
+    if (!updateZoneSize()) return; // гард: зона слишком велика для онлайна
+    const bbox = zoneBbox().join(",");
     window.dispatchEvent(new Event("predict-start"));
     htmx
       .ajax("POST", "/ui/predict", {
@@ -101,16 +262,40 @@
     });
   };
 
+  // ── Инспектор точки (A2) ──────────────────────────────────────────────────
+  function inspectPoint(latlng) {
+    const url = `/api/runs/${state.currentRunId}/point?lat=${latlng.lat}&lon=${latlng.lng}`;
+    const popup = L.popup().setLatLng(latlng).setContent("…").openOn(map);
+    fetch(url)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => {
+        popup.setContent(
+          d.in_bounds
+            ? `Вероятность затопления<br><span style="font-size:1.15em;font-weight:600">p = ${d.probability.toFixed(2)}</span>`
+            : "Вне зоны расчёта",
+        );
+      })
+      .catch(() => popup.setContent("Ошибка запроса"));
+  }
+
   map.on("click", function (e) {
-    if (state.mode !== "explain" || !state.currentRunId) return;
-    // индикатор: explain вне Тулуна собирает признаки онлайн и может занять десятки секунд
-    const panel = document.getElementById("explain-panel");
-    if (panel) panel.innerHTML = '<p class="text-sm text-slate-500">Считаю важность признаков…</p>';
-    htmx.ajax("POST", "/ui/explain", {
-      target: "#explain-panel",
-      swap: "innerHTML",
-      values: { run_id: state.currentRunId, lat: e.latlng.lat, lon: e.latlng.lng },
-    });
+    if (state.drawing) return; // идёт рисование зоны — клик не трактуем
+    if (state.mode === "explain") {
+      if (!state.currentRunId) return;
+      const panel = document.getElementById("explain-panel");
+      if (panel) {
+        panel.innerHTML =
+          '<p class="text-sm text-slate-500">Считаю важность признаков…</p>';
+      }
+      htmx.ajax("POST", "/ui/explain", {
+        target: "#explain-panel",
+        swap: "innerHTML",
+        values: { run_id: state.currentRunId, lat: e.latlng.lat, lon: e.latlng.lng },
+      });
+      return;
+    }
+    // Режим «Просмотр»: инспектор точки (нужен готовый расчёт).
+    if (state.currentRunId) inspectPoint(e.latlng);
   });
 
   function bbox2bounds(b) {
@@ -134,7 +319,9 @@
       }
       if (png && boundsStr) {
         const bounds = bbox2bounds(JSON.parse(boundsStr));
-        state.currentOverlay = L.imageOverlay(png, bounds, { opacity: 0.7 }).addTo(map);
+        state.currentOverlay = L.imageOverlay(png, bounds, {
+          opacity: state.opacity,
+        }).addTo(map);
         map.fitBounds(bounds);
       }
       state.currentRunId = el.dataset.runId || null;
@@ -169,6 +356,9 @@
     const url = e.detail && e.detail.url;
     if (url) window.location = url;
   });
+
+  // Стартовая зона = центр покрытия (или текущий вид вне покрытия).
+  setZone(defaultZoneBounds());
 
   window.floodrisk = state;
 })();

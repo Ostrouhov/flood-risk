@@ -159,6 +159,36 @@ def _aggregates(prob: np.ndarray, res_m: float) -> dict:
     }
 
 
+def sample_point(run_id: str, lat: float, lon: float) -> float | None:
+    """Вероятность затопления в точке (lat, lon, EPSG:4326) из растра запуска.
+
+    Открывает ``runs/<run_id>/prediction.tif``, репроецирует точку в CRS растра и
+    сэмплирует значение. Возвращает float ∈[0,1] или None (точка вне границ растра
+    либо nodata/NaN). Бросает FileNotFoundError, если растра запуска нет.
+    """
+    from rasterio.warp import transform as warp_transform
+
+    tif_path = settings.runs_dir / run_id / "prediction.tif"
+    if not tif_path.exists():
+        raise FileNotFoundError(run_id)
+
+    with rasterio.open(tif_path) as src:
+        try:
+            xs, ys = warp_transform("EPSG:4326", src.crs, [lon], [lat])
+        except Exception:
+            # Точка вне домена проекции растра (напр. далеко от UTM-зоны) → вне зоны.
+            return None
+        x, y = xs[0], ys[0]
+        left, bottom, right, top = src.bounds
+        if not (left <= x <= right and bottom <= y <= top):
+            return None
+        value = next(src.sample([(x, y)]))[0]
+
+    if value is None or np.isnan(value):
+        return None
+    return round(float(np.clip(value, 0.0, 1.0)), 4)
+
+
 def predict(
     session: Session,
     bbox: list[float],

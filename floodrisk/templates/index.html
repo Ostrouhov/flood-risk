@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="flex h-full w-full flex-col" x-data="{ loading: false, mode: 'view' }"
+<div class="flex h-full w-full flex-col" x-data="{ loading: false, mode: 'view', opacity: 0.7 }"
      @predict-start.window="loading = true" @predict-end.window="loading = false"
      @mode-changed.window="mode = $event.detail">
   <header class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -13,18 +13,28 @@
     <aside class="w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4 space-y-4">
       <section>
         <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Сценарий</h2>
-        <div class="space-y-1 text-sm">
+        <div class="space-y-2 text-sm">
           {% for s in scenarios %}
-          <label class="flex items-center gap-2">
-            <input type="radio" name="scenario_id" value="{{ s.scenario_id }}"
-                   {% if loop.first %}checked{% endif %}
-                   onchange="floodrisk.recalc()" />
-            <span>{{ s.scenario_id }} <span class="text-slate-400">— {{ s.name }}</span></span>
+          <label class="block">
+            <span class="flex items-center gap-2">
+              <input type="radio" name="scenario_id" value="{{ s.scenario_id }}"
+                     {% if loop.first %}checked{% endif %}
+                     onchange="floodrisk.recalc()" />
+              <span>{{ s.scenario_id }} <span class="text-slate-400">— {{ s.name }}</span></span>
+            </span>
+            {% if s.precip_mm and s.return_period %}
+            <span class="ml-6 block text-xs text-slate-400">
+              ливень {{ s.precip_mm }} мм/сут · повторяемость {{ s.return_period }} лет
+            </span>
+            {% endif %}
           </label>
           {% else %}
           <div class="text-slate-400 italic">нет сценариев (выполните make seed)</div>
           {% endfor %}
         </div>
+        <p class="mt-2 text-xs text-slate-400">
+          Сценарий применяется пост-сдвигом логита (β=log10(RP/10)) — эвристика, не обученная зависимость.
+        </p>
       </section>
 
       <section>
@@ -43,16 +53,22 @@
       </section>
 
       <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Область (bbox)</h2>
-        <select id="bbox-mode" class="w-full rounded border border-slate-300 px-2 py-1 text-sm">
-          <option value="center">Центр территории</option>
-          <option value="view">Текущий вид карты</option>
-        </select>
+        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Область (зона)</h2>
+        <div class="flex gap-2">
+          <button id="draw-btn"
+            class="flex-1 rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
+            onclick="floodrisk.armDraw()">Выделить на карте</button>
+          <button
+            class="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
+            onclick="floodrisk.resetZone()" title="Сбросить к Тулуну">↺</button>
+        </div>
+        <div id="zone-size" class="mt-1 text-xs text-slate-500">—</div>
+        <div id="zone-warning" class="mt-1 hidden rounded bg-amber-100 px-2 py-1 text-xs text-amber-800"></div>
         <p class="mt-1 text-xs text-slate-400">
-          «Текущий вид карты» работает и вне Тулуна: панорамируйте карту и приблизьте
-          зону — признаки соберутся онлайн (экспериментально).
+          Нарисуйте прямоугольник на карте. Внутри Тулуна — валидированная мозаика;
+          вне — признаки собираются онлайн (экспериментально).
         </p>
-        <button
+        <button id="recalc-btn"
           class="mt-2 w-full rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
           onclick="floodrisk.recalc()" x-bind:disabled="loading">
           <span x-show="!loading">Пересчитать</span>
@@ -63,6 +79,21 @@
       <section>
         <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Агрегаты</h2>
         <div id="aggregates" class="text-sm text-slate-400 italic">нет данных</div>
+      </section>
+
+      <section>
+        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Расчёт</h2>
+        <div id="run-meta" class="text-xs text-slate-400 italic">—</div>
+      </section>
+
+      <section>
+        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Слой</h2>
+        <label class="block text-xs text-slate-500">
+          Прозрачность наложения: <span class="font-mono" x-text="Math.round(opacity * 100) + '%'"></span>
+          <input type="range" min="0" max="1" step="0.05" class="mt-1 w-full"
+                 x-model.number="opacity"
+                 @input="floodrisk.setOpacity(opacity)" />
+        </label>
       </section>
 
       <section>

@@ -69,6 +69,15 @@ class ExplainResponse(BaseModel):
     attribution_layers: list[dict]
 
 
+class PointResponse(BaseModel):
+    """Значение вероятности в точке клика (инспектор точки, режим «Просмотр»)."""
+
+    lat: float
+    lon: float
+    probability: float | None = None
+    in_bounds: bool
+
+
 class RunOut(BaseModel):
     run_id: str
     bbox: list[float]

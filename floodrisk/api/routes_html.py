@@ -19,6 +19,17 @@ router = APIRouter(tags=["html"])
 templates = Jinja2Templates(directory=str(settings.templates_dir))
 
 
+def _static_version(name: str) -> int:
+    """mtime статики для cache-busting (?v=…): инвалидирует кэш браузера при правках."""
+    try:
+        return int((settings.static_dir / name).stat().st_mtime)
+    except OSError:
+        return 0
+
+
+templates.env.globals["static_v"] = _static_version
+
+
 def _coverage() -> list[float] | None:
     from floodrisk.inference.features import coverage_wgs84
     from floodrisk.inference.service import feature_stack_path
@@ -31,10 +42,21 @@ def _coverage() -> list[float] | None:
 
 @router.get("/", response_class=HTMLResponse)
 def index(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
-    scenarios = list_scenarios(session)
     models = list_model_versions(session)
     coverage = _coverage()  # [W,S,E,N] или None
     model_label = f"{models[0].name}-{models[0].version}" if models else "— (не загружена)"
+    # View-model сценариев: распарсенные params (мм/сут, повторяемость) для подписей в UI (A5).
+    scenarios = []
+    for s in list_scenarios(session):
+        params = json.loads(s.params_json) if s.params_json else {}
+        scenarios.append(
+            {
+                "scenario_id": s.scenario_id,
+                "name": s.name,
+                "precip_mm": params.get("precipitation_mm_24h"),
+                "return_period": params.get("return_period_years"),
+            }
+        )
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -97,6 +119,7 @@ def ui_predict(
             "run_id": result["run_id"],
             "aggregates": result["aggregates"],
             "experimental": result["metadata"]["experimental"],
+            "metadata": result["metadata"],
         },
     )
 
