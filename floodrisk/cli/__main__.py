@@ -21,7 +21,7 @@ def _run_data(args) -> int:
     from floodrisk.data import pipeline
     from floodrisk.data.config import load_data_config
 
-    cfg = load_data_config()
+    cfg = load_data_config(args.config)
     if args.bbox is not None:
         cfg = cfg.model_copy(update={"pilot_bbox_wgs84": args.bbox})
 
@@ -110,6 +110,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--bbox", type=_parse_bbox, default=None, help="переопределить bbox 'W,S,E,N'"
     )
     data.add_argument("--manifest", default=None, help="путь к manifest.yaml для verify")
+    data.add_argument(
+        "--config", default=None, help="путь к YAML data-конфигу (для др. региона, напр. Канск)"
+    )
     data.add_argument(
         "--skip-era5", action="store_true", help="не выгружать ERA5 (нет CDS_API_KEY)"
     )

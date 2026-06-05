@@ -1,0 +1,72 @@
+# Параметры подготовки данных для ВТОРОГО региона — Канск, р. Кан, Красноярский край.
+# Мультирегион (атака на M-2): то же половодье июня 2019, что и Тулун. Структура — копия
+# configs/data.yaml; отличаются bbox/CRS/событие. Обрабатывается отдельным прогоном
+# пайплайна: `python -m floodrisk data fetch --config configs/data_kansk.yaml --skip-era5`
+# → preprocess → label. Выход — data/processed/kansk/.
+#
+# S1-проба (2026-06-05) подтвердила: Sentinel-1 GRD над Канском есть, орбиты 121/150 в окнах
+# flood и dry → orbit-matched change detection (как в Тулуне).
+
+dataset_version: kansk
+
+# Канск (≈56.21°N, 95.71°E) и пойма р. Кан. bbox WGS84 [W, S, E, N], ~95×90 км.
+pilot_bbox_wgs84: [95.0, 55.8, 96.5, 56.6]
+
+# UTM-зона 46N для долготы ~95.7°E (Тулун — 47N/32647).
+target_crs: EPSG:32646
+
+tile_size_px: 256
+tile_resolution_m: 30
+tile_overlap_px: 0
+inference_overlap_px: 32
+
+splits:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+  seed: 42
+  method: geographic_bbox
+
+events:
+  - event_id: 2019-kansk-kan
+    role: train_label
+    # post-event окно (пик разлива) — сцены S1 20–21.06 / 02–03.07 / 14–15.07 2019.
+    flood_window: [2019-06-15, 2019-07-20]
+    # "сухое" окно той же орбиты (до паводка) для change detection.
+    dry_window: [2019-05-01, 2019-06-10]
+    reference: copernicus_ems
+
+sources:
+  dem:
+    product: copernicus-dem-glo-30
+    via: aws_open_data
+  worldcover:
+    product: esa-worldcover-2021
+    via: aws_open_data
+  jrc_gsw:
+    product: global-surface-water
+    layer: occurrence
+    via: jrc_http
+    threshold_pct: 50
+  osm:
+    via: overpass
+    water_tags: ["natural=water", "waterway", "landuse=reservoir"]
+  sentinel1:
+    product: sentinel-1-grd
+    via: planetary_computer
+    polarizations: ["VV", "VH"]
+  era5:
+    product: era5-land
+    via: cds_api
+    variables: ["total_precipitation"]
+
+labels_s1:
+  method: otsu_change_detection
+  primary_band: VV
+  slope_mask_deg: 5
+  min_blob_px: 8
+  permanent_water_occurrence_pct: 50
+  validation:
+    metric: iou
+    target: 0.50
+    fallback: 0.40

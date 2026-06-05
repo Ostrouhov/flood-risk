@@ -163,6 +163,8 @@ def get_run_groundtruth(run_id: str, threshold: float = 0.5) -> GroundTruthRespo
         bounds_wgs84=result["bounds_wgs84"],
         metrics=result["metrics"],
         threshold=result["threshold"],
+        experimental=result.get("experimental", False),
+        regions=result.get("regions"),
     )
 
 

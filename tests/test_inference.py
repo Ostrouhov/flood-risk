@@ -69,6 +69,9 @@ def inference_env(tmp_path, monkeypatch):
     traced.save(str(model_path))
 
     monkeypatch.setattr(svc, "feature_stack_path", lambda _ds: stack)
+    # Изоляция мультирегиона: не сканировать реальные data/processed/* в тестах —
+    # единственная мозаика = синтетический стек выше.
+    monkeypatch.setattr(svc, "_region_stacks", lambda: [])
     registry.clear_cache()
 
     create_db_and_tables()

@@ -10,12 +10,16 @@
   const mapEl = document.getElementById("map");
   if (!mapEl) return;
 
-  let coverage = null;
+  // Покрытия региональных мозаик: [{region,label,bbox:[W,S,E,N]}, …] (Тулун, Канск).
+  let coverages = [];
   try {
-    coverage = JSON.parse(mapEl.dataset.coverage);
+    const parsed = JSON.parse(mapEl.dataset.coverage);
+    if (Array.isArray(parsed)) coverages = parsed.filter((c) => c && Array.isArray(c.bbox));
   } catch (e) {
-    coverage = null;
+    coverages = [];
   }
+  // Первичный регион (для дефолтной зоны/центра) — первый в списке.
+  const coverage = coverages.length ? coverages[0].bbox : null;
 
   const MAX_BBOX_KM = 30; // онлайн-кап (см. online_features.MAX_BBOX_KM)
 
@@ -34,22 +38,27 @@
   );
   L.control.layers({ "Карта (OSM)": osm, "Спутник (Esri)": sat }, null, { position: "topright" }).addTo(map);
 
-  // Контур валидированного покрытия (A6): пунктир, не перехватывает клики.
-  if (coverage) {
-    const covBounds = [
-      [coverage[1], coverage[0]],
-      [coverage[3], coverage[2]],
-    ];
-    L.rectangle(covBounds, {
-      color: "#0ea5e9",
-      weight: 1,
-      dashArray: "6 4",
-      fill: false,
-      interactive: false,
-    })
-      .addTo(map)
-      .bindTooltip("Валидированная зона (Тулун-2019)", { sticky: true });
-    map.fitBounds(covBounds);
+  // Контуры валидированных мозаик (A6): пунктир по каждому региону, не перехватывают клики.
+  if (coverages.length) {
+    const union = L.latLngBounds([]);
+    coverages.forEach((c) => {
+      const [w, s, e, n] = c.bbox;
+      const b = [
+        [s, w],
+        [n, e],
+      ];
+      L.rectangle(b, {
+        color: "#0ea5e9",
+        weight: 1,
+        dashArray: "6 4",
+        fill: false,
+        interactive: false,
+      })
+        .addTo(map)
+        .bindTooltip(`Валидированная зона: ${c.label || c.region}`, { sticky: true });
+      union.extend(b);
+    });
+    map.fitBounds(union);
   }
 
   const state = {
@@ -108,9 +117,13 @@
   }
 
   function zoneInCoverage() {
-    if (!coverage) return false;
+    if (!coverages.length) return false;
     const [w, s, e, n] = zoneBbox();
-    return w >= coverage[0] && s >= coverage[1] && e <= coverage[2] && n <= coverage[3];
+    // зона внутри ХОТЯ БЫ одного валидированного региона (Тулун/Канск)
+    return coverages.some((c) => {
+      const [cw, cs, ce, cn] = c.bbox;
+      return w >= cw && s >= cs && e <= ce && n <= cn;
+    });
   }
 
   // Обновляет подпись размера и гард (C1). Возвращает true, если зона допустима.
@@ -126,7 +139,7 @@
     const warnEl = document.getElementById("zone-warning");
     if (warnEl) {
       if (tooBig) {
-        warnEl.textContent = `Слишком большая зона для онлайна (>${MAX_BBOX_KM} км). Уменьшите выделение или выберите зону внутри Тулуна.`;
+        warnEl.textContent = `Слишком большая зона для онлайна (>${MAX_BBOX_KM} км). Уменьшите выделение или выберите зону внутри валидированной мозаики.`;
         warnEl.classList.remove("hidden");
       } else {
         warnEl.classList.add("hidden");
@@ -500,14 +513,19 @@
   };
 
   // ── Валидация: шторка «предсказание ↔ реальность (S1)» + метрики (B1/B2) ────
-  function renderGtTable(m) {
+  function renderGtTable(gt) {
     const tbl = document.getElementById("compare-table");
     if (!tbl) return;
+    const m = gt.metrics || {};
     const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toFixed(3));
     const row = (label, val) =>
       `<tr><td class="py-0.5 text-slate-600">${label}</td>` +
       `<td class="text-right font-mono">${fmt(val)}</td></tr>`;
+    const caveat = gt.experimental
+      ? '<div class="mb-1 rounded bg-amber-100 px-2 py-1 text-xs text-amber-800">⚠ Лейблы этого региона (Канск) не валидированы эталоном — S1-маска экспериментальна.</div>'
+      : "";
     tbl.innerHTML =
+      caveat +
       `<div class="mb-1 text-xs text-slate-500">Совпадение с реальным разливом 2019 (на зоне, p≥${m.threshold})</div>` +
       '<table class="w-full text-xs"><tbody>' +
       row("IoU", m.iou) +
@@ -527,13 +545,16 @@
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((gt) => {
         if (!gt.available) {
-          state.toast("Реальная маска S1 доступна только для Тулуна (валидированная зона)", "error");
+          state.toast("Реальная маска S1 есть только для валидированных зон (Тулун, Канск)", "error");
           return;
+        }
+        if (gt.experimental) {
+          state.toast("Канск: S1-лейблы экспериментальны (не валидированы эталоном)", "error");
         }
         enterCompare(
           { url: state.currentPrediction.png_url, bounds: state.currentPrediction.bounds_wgs84 },
           { url: gt.png_url, bounds: gt.bounds_wgs84 },
-          { labels: ["Предсказание", "Реальность (S1)"], renderTable: () => renderGtTable(gt.metrics) },
+          { labels: ["Предсказание", "Реальность (S1)"], renderTable: () => renderGtTable(gt) },
         );
       })
       .catch(() => state.toast("Не удалось получить реальную маску", "error"))

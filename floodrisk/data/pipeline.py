@@ -20,13 +20,6 @@ def processed_dir(cfg: DataConfig) -> Path:
     return DATA_DIR / "processed" / cfg.dataset_version
 
 
-def _first(raw_dir: Path, sub: str, pattern: str = "*.tif") -> Path:
-    matches = sorted((raw_dir / sub).glob(pattern))
-    if not matches:
-        raise FileNotFoundError(f"нет файлов {sub}/{pattern} — сначала `data fetch`")
-    return matches[0]
-
-
 def run_fetch(cfg: DataConfig | None = None, *, skip_era5: bool = False) -> dict:
     """FR-1: скачать сырые источники для пилота, записать провенанс."""
     cfg = cfg or load_data_config()
@@ -45,20 +38,38 @@ def run_preprocess(cfg: DataConfig | None = None) -> Path:
     feat_dir = out / "features"
     feat_dir.mkdir(parents=True, exist_ok=True)
 
-    dem = pp.reproject_to_grid(_first(raw, "cop-dem-glo-30"), grid, "bilinear")
-    slope, aspect = pp.slope_aspect_deg(dem, grid.resolution_m)
-    curv = pp.curvature(dem, grid.resolution_m)
-    twi = pp.twi(dem, grid.resolution_m)
-    worldcover = pp.reproject_to_grid(_first(raw, "esa-worldcover"), grid, "nearest")
+    # Источники покрываются НЕСКОЛЬКИМИ 1°-тайлами; raw общий на регионы → мозаичим ВСЕ тайлы,
+    # пересекающие сетку (а не первый по алфавиту). Склейки — во временный каталог.
+    import shutil
+    import tempfile
 
-    osm = raw / "osm" / "water.osm.json"
-    pw_path = build_permanent_water(
-        grid,
-        _first(raw, "jrc-gsw"),
-        osm if osm.exists() else None,
-        cfg.labels_s1.permanent_water_occurrence_pct,
-        feat_dir / "permanent_water.tif",
-    )
+    merge_dir = Path(tempfile.mkdtemp(prefix="floodrisk_merge_"))
+    try:
+        dem_src = pp.mosaic_source_to_file(
+            sorted((raw / "cop-dem-glo-30").glob("*.tif")), grid, merge_dir / "dem.tif"
+        )
+        dem = pp.reproject_to_grid(dem_src, grid, "bilinear")
+        slope, aspect = pp.slope_aspect_deg(dem, grid.resolution_m)
+        curv = pp.curvature(dem, grid.resolution_m)
+        twi = pp.twi(dem, grid.resolution_m)
+        wc_src = pp.mosaic_source_to_file(
+            sorted((raw / "esa-worldcover").glob("*.tif")), grid, merge_dir / "worldcover.tif"
+        )
+        worldcover = pp.reproject_to_grid(wc_src, grid, "nearest")
+
+        jrc_src = pp.mosaic_source_to_file(
+            sorted((raw / "jrc-gsw").glob("*.tif")), grid, merge_dir / "jrc.tif"
+        )
+        osm = raw / "osm" / "water.osm.json"
+        pw_path = build_permanent_water(
+            grid,
+            jrc_src,
+            osm if osm.exists() else None,
+            cfg.labels_s1.permanent_water_occurrence_pct,
+            feat_dir / "permanent_water.tif",
+        )
+    finally:
+        shutil.rmtree(merge_dir, ignore_errors=True)
     import rasterio
 
     with rasterio.open(pw_path) as src:

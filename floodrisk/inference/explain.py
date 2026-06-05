@@ -21,7 +21,7 @@ from floodrisk import feature_transform as ft
 from floodrisk.db.models import Explanation, ModelVersion
 from floodrisk.db.repositories import get_run
 from floodrisk.inference import online_features as online
-from floodrisk.inference.service import _load_norm_stats, feature_stack_path
+from floodrisk.inference.service import _load_norm_stats
 from floodrisk.settings import settings
 
 WGS84 = "EPSG:4326"
@@ -71,18 +71,22 @@ def _window_for_explain(lat: float, lon: float, dataset_version: str):
 
     Возвращает (raw[7,H,W], transform, crs). Размер кратен 32 (требование U-Net).
     """
-    stack = feature_stack_path(dataset_version)
-    try:
-        return _window_around(lat, lon, stack)
-    except PointOutOfCoverage:
-        # вне покрытия → собрать окно ~TILE*res вокруг точки онлайн (experimental)
-        half_m = (TILE * online.RES_M) / 2.0
-        dlat = half_m / 111320.0
-        dlon = half_m / (111320.0 * max(math.cos(math.radians(lat)), 1e-6))
-        bbox = [lon - dlon, lat - dlat, lon + dlon, lat + dlat]
-        raw, transform, crs = online.build_feature_window(bbox, cache_dir=settings.online_cache_dir)
-        cropped, t2 = _crop_to_multiple_of_32(raw, transform)
-        return cropped, t2, crs
+    from floodrisk.inference.service import _mosaic_stacks
+
+    # Мультирегион: пробуем все региональные мозаики (Тулун, Канск); первая, что покрывает точку.
+    for stack in _mosaic_stacks(dataset_version):
+        try:
+            return _window_around(lat, lon, stack)
+        except PointOutOfCoverage:
+            continue
+    # вне всех мозаик → собрать окно ~TILE*res вокруг точки онлайн (experimental)
+    half_m = (TILE * online.RES_M) / 2.0
+    dlat = half_m / 111320.0
+    dlon = half_m / (111320.0 * max(math.cos(math.radians(lat)), 1e-6))
+    bbox = [lon - dlon, lat - dlat, lon + dlon, lat + dlat]
+    raw, transform, crs = online.build_feature_window(bbox, cache_dir=settings.online_cache_dir)
+    cropped, t2 = _crop_to_multiple_of_32(raw, transform)
+    return cropped, t2, crs
 
 
 def _unet_attributions(checkpoint_path: str, fnorm: np.ndarray, n_steps: int = 16) -> np.ndarray:

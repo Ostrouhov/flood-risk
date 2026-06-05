@@ -28,16 +28,27 @@ MASK_RGB = (239, 68, 68)
 MASK_ALPHA = 165
 
 
-def label_mask_paths(dataset_version: str) -> list[Path]:
-    """Пути к мозаикам реальных масок затопления для датасета.
+# Регионы с валидированными лейблами (эталон/проверка). Канск — демо: признаки корректны,
+# но S1-маска не валидирована эталоном (пере-детекция) → помечаем experimental.
+VALIDATED_REGIONS = {"v1"}
 
-    Сканирует `data/processed/<ds>/labels/*/flood_mask.tif`. На v1 — один путь
-    (Тулун); при добавлении событий (Канск) — несколько. Патчируется в тестах.
+
+def label_mask_paths(dataset_version: str | None = None) -> list[Path]:
+    """Пути ко ВСЕМ мозаикам реальных масок затопления (мультирегион).
+
+    Сканирует `data/processed/*/labels/*/flood_mask.tif` (Тулун, Канск, …). Маска
+    выбирается по пересечению с гридом рана в `ground_truth_for_run`. Патчируется в тестах.
     """
-    base = settings.project_root / "data" / "processed" / dataset_version / "labels"
+    base = settings.project_root / "data" / "processed"
     if not base.exists():
         return []
-    return sorted(base.glob("*/flood_mask.tif"))
+    return sorted(base.glob("*/labels/*/flood_mask.tif"))
+
+
+def _region_of_mask(mask_path: Path) -> str:
+    """`processed/<region>/labels/<event>/flood_mask.tif` → <region>."""
+    parents = mask_path.parents
+    return parents[2].name if len(parents) >= 3 else ""
 
 
 def compute_agreement(
@@ -167,13 +178,17 @@ def ground_truth_for_run(run_id: str, dataset_version: str, threshold: float = 0
 
     mask01 = np.zeros(shape, dtype="uint8")
     valid = np.zeros(shape, dtype="uint8")
+    regions: list[str] = []
     for mp in paths:
         m, v = _reproject_mask_to_grid(mp, dst_crs, dst_transform, shape)
+        if int(np.count_nonzero(v)) == 0:
+            continue  # маска этого региона не пересекает грид рана
         mask01 |= m
         valid |= v
+        regions.append(_region_of_mask(mp))
 
     if int(np.count_nonzero(valid)) == 0:
-        return None  # зона вне размеченной области (онлайн/Москва/вне Тулуна)
+        return None  # зона вне размеченной области (онлайн/Москва/вне регионов)
 
     truth_bin = (mask01 > 0) & (valid > 0)
     metrics = compute_agreement(pred_prob, truth_bin, valid, threshold)
@@ -181,9 +196,13 @@ def ground_truth_for_run(run_id: str, dataset_version: str, threshold: float = 0
     png_path = run_dir / "groundtruth.png"
     bounds_wgs84 = _write_mask_png_wgs84(png_path, mask01 * (valid > 0), dst_transform, dst_crs)
 
+    # experimental, если хоть один пересёкший регион не валидирован эталоном (напр. Канск).
+    experimental = any(r not in VALIDATED_REGIONS for r in regions)
     return {
         "png_url": f"/runs/{run_id}/groundtruth.png",
         "bounds_wgs84": bounds_wgs84,
         "metrics": metrics,
         "threshold": metrics["threshold"],
+        "regions": regions,
+        "experimental": experimental,
     }

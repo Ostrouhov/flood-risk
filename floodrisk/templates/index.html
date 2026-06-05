@@ -90,13 +90,13 @@
             onclick="floodrisk.armDraw()">Выделить на карте</button>
           <button
             class="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
-            onclick="floodrisk.resetZone()" title="Сбросить к Тулуну">↺</button>
+            onclick="floodrisk.resetZone()" title="Сбросить к валидированной зоне">↺</button>
         </div>
         <div id="zone-size" class="mt-1 text-xs text-slate-500">—</div>
         <div id="zone-warning" class="mt-1 hidden rounded bg-amber-100 px-2 py-1 text-xs text-amber-800"></div>
         <p class="mt-1 text-xs text-slate-400">
-          Нарисуйте прямоугольник на карте. Внутри Тулуна — валидированная мозаика;
-          вне — признаки собираются онлайн (экспериментально).
+          Нарисуйте прямоугольник на карте. Внутри валидированных зон (Тулун, Канск) —
+          быстрая мозаика; вне — признаки собираются онлайн (экспериментально).
         </p>
         <button id="recalc-btn"
           class="mt-2 w-full rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
@@ -140,7 +140,7 @@
         <div id="compare-table" class="mt-2"></div>
         <p class="mt-1 text-xs text-slate-400">
           <b>Реальность S1</b>: справа — что реально затопило в 2019 (Sentinel-1), слева — предсказание;
-          в таблице IoU/F1 на зоне. Доступно только для Тулуна (валидированная зона).
+          в таблице IoU/F1 на зоне. Доступно в валидированных зонах (Тулун; Канск — экспериментально).
           <b>U-Net ↔ baseline</b>: численная суть вопроса M-2.
         </p>
       </section>
@@ -172,7 +172,7 @@
     </aside>
 
     <main class="relative flex-1">
-      <div id="map" class="h-full w-full" data-coverage="{{ coverage | tojson if coverage else 'null' }}"></div>
+      <div id="map" class="h-full w-full" data-coverage='{{ coverage | tojson if coverage else "[]" }}'></div>
       <div id="experimental-banner" class="pointer-events-none absolute inset-x-0 top-0 z-[1100]"></div>
       <div id="prediction-data" class="hidden"></div>
       <div id="explanation-data" class="hidden"></div>

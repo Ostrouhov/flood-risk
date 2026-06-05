@@ -53,6 +53,66 @@ def feature_stack_path(dataset_version: str) -> Path:
     return settings.project_root / "data" / "processed" / dataset_version / "features" / "stack.tif"
 
 
+# Регионы с офлайн-мозаикой признаков (валидированные/быстрые). Человекочитаемые подписи и
+# отметка «валидирован» (для UI/валидации): Тулун обучен и проверен; Канск — демо (признаки
+# корректны, но S1-лейблы не валидированы эталоном).
+REGION_LABELS = {"v1": "Тулун", "kansk": "Канск"}
+VALIDATED_REGIONS = {"v1"}
+
+
+def _region_stacks() -> list[Path]:
+    """Все региональные мозаики признаков `data/processed/<region>/features/stack.tif`.
+
+    Исключает объединённые датасеты (v2) — у них нет своего stack.tif. Мультирегион:
+    инференс перебирает эти стеки, выбирая покрывающий bbox (Тулун, Канск, …).
+    """
+    base = settings.project_root / "data" / "processed"
+    if not base.exists():
+        return []
+    return sorted(p for p in base.glob("*/features/stack.tif"))
+
+
+def _mosaic_stacks(dataset_version: str) -> list[Path]:
+    """Список стеков-мозаик для перебора: основной (по dataset_version) + прочие регионы."""
+    primary = feature_stack_path(dataset_version)
+    out: list[Path] = []
+    seen: set = set()
+    for sp in [primary, *_region_stacks()]:
+        try:
+            key = sp.resolve()
+        except OSError:
+            key = sp
+        if key not in seen and sp.exists():
+            seen.add(key)
+            out.append(sp)
+    return out
+
+
+def mosaic_coverages() -> list[dict]:
+    """Покрытия всех региональных мозаик для UI: [{region, label, bbox_wgs84}].
+
+    Порядок: валидированные регионы (Тулун) первыми — первый становится дефолтной зоной в UI.
+    """
+    out: list[dict] = []
+    stacks = sorted(
+        _region_stacks(),
+        key=lambda p: (p.parent.parent.name not in VALIDATED_REGIONS, p.parent.parent.name),
+    )
+    for sp in stacks:
+        region = sp.parent.parent.name
+        try:
+            out.append(
+                {
+                    "region": region,
+                    "label": REGION_LABELS.get(region, region),
+                    "bbox": feat.coverage_wgs84(sp),
+                }
+            )
+        except Exception:
+            continue
+    return out
+
+
 def _load_norm_stats(config_path: str) -> tuple[np.ndarray, np.ndarray]:
     import yaml
 
@@ -73,24 +133,28 @@ def _resolve_features(bbox: list[float], dataset_version: str, source: str):
     лету для произвольного bbox, экспериментально) или 'auto' (мозаика в покрытии,
     иначе онлайн). См. SRS-расширение «глобальный режим».
     """
-    stack = feature_stack_path(dataset_version)
+    stacks = _mosaic_stacks(dataset_version)
     if source == "online":
         fdata, transform, crs = online.build_feature_window(
             bbox, cache_dir=settings.online_cache_dir
         )
         return fdata, transform, crs, "online"
+
+    # mosaic/auto: перебираем региональные мозаики (Тулун, Канск, …); первая покрывающая bbox.
+    last_coverage: list[float] | None = None
+    for stack in stacks:
+        try:
+            fdata, transform, crs, _ = feat.read_feature_window(bbox, stack)
+            return fdata, transform, crs, "mosaic"
+        except feat.OutOfCoverage as exc:
+            last_coverage = exc.coverage_wgs84
+            continue
+    # ни одна мозаика не покрыла bbox
     if source == "mosaic":
-        fdata, transform, crs, _ = feat.read_feature_window(bbox, stack)
-        return fdata, transform, crs, "mosaic"
-    # auto: пробуем мозаику, при выходе за покрытие — онлайн
-    try:
-        fdata, transform, crs, _ = feat.read_feature_window(bbox, stack)
-        return fdata, transform, crs, "mosaic"
-    except feat.OutOfCoverage:
-        fdata, transform, crs = online.build_feature_window(
-            bbox, cache_dir=settings.online_cache_dir
-        )
-        return fdata, transform, crs, "online"
+        raise feat.OutOfCoverage(last_coverage or [])
+    # auto → онлайн-сборка
+    fdata, transform, crs = online.build_feature_window(bbox, cache_dir=settings.online_cache_dir)
+    return fdata, transform, crs, "online"
 
 
 def _resolve_model(session: Session, model_version: str):

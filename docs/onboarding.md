@@ -61,7 +61,7 @@
 ## Часть 3. Этапы 0–6
 
 - **Этап 0 — каркас.** [app.py](../floodrisk/app.py) (фабрика FastAPI), [settings.py](../floodrisk/settings.py) (все пути/конфиг), [db/](../floodrisk/db/) (SQLite/SQLModel, 5 таблиц, seed). Команды: `make db-reset`, `make run`.
-- **Этап 1 — данные (FR-1…4).** [data/](../floodrisk/data/): fetch (Planetary Computer STAC + OSM + ERA5) → preprocess (рельеф+TWI, проекция, тайлы) → labels_s1 (Otsu + change detection, минус JRC/OSM воду) → manifest (sha256). Конфиг [configs/data.yaml](../configs/data.yaml). Датасет v1 = 208 тайлов, 7 каналов, flood ~1.2%. Команды: `make data`, `make verify-data`.
+- **Этап 1 — данные (FR-1…4).** [data/](../floodrisk/data/): fetch (Planetary Computer STAC + OSM + ERA5) → preprocess (рельеф+TWI, проекция, тайлы) → labels_s1 (Otsu + change detection, минус JRC/OSM воду) → manifest (sha256). Конфиг [configs/data.yaml](../configs/data.yaml). Датасет v1 = 208 тайлов, 7 каналов, flood ~1.2%. Команды: `make data`, `make verify-data`. **NB (багфикс 2026-06):** `preprocess.mosaic_source_to_file` мозаичит ВСЕ перекрывающие сетку тайлы DEM/WorldCover/JRC (раньше брался один → рельеф был пуст вне его покрытия). Мультирегион: 2-й конфиг [configs/data_kansk.yaml](../configs/data_kansk.yaml) (Канск, EPSG:32646) обрабатывается отдельным прогоном `--config`; см. `reports/acceptance.md`.
 - **Этап 2 — ML (FR-5…7).** [ml/](../floodrisk/ml/): model.py (U-Net smp resnet34, BCE+Dice+pos_weight), baseline.py (RandomForest попиксельно), train.py (+MLflow), export.py (TorchScript), evaluate.py+metrics.py (bootstrap-CI). Вход = **18 каналов** (см. FAQ). Команды: `make train`, `make eval`.
 - **Этап 3 — инференс (FR-8/9/12/13).** [inference/service.py](../floodrisk/inference/service.py) — сердце (predict). [features.py](../floodrisk/inference/features.py) (окно+sliding+покрытие), [registry.py](../floodrisk/inference/registry.py) (резидентные модели), [scenario.py](../floodrisk/inference/scenario.py) (logit-сдвиг). Артефакты в `runs/<id>/`.
 - **Этап 4 — фронтенд (FR-14…17).** [templates/index.html](../floodrisk/templates/index.html) + [fragments/](../floodrisk/templates/fragments/), [routes_html.py](../floodrisk/api/routes_html.py) (HTMX), [static/app.js](../static/app.js) (мост к Leaflet), [exporter.py](../floodrisk/inference/exporter.py) (ZIP/PDF).
@@ -88,18 +88,23 @@
 | Изменить… | Файл |
 |---|---|
 | Логику инференса | [inference/service.py](../floodrisk/inference/service.py) |
+| Мультирегион-мозаику (выбор стека по bbox) | [inference/service.py](../floodrisk/inference/service.py): `_region_stacks`/`_mosaic_stacks`/`mosaic_coverages` |
+| Онлайн-сборку признаков (вне покрытия) | [inference/online_features.py](../floodrisk/inference/online_features.py) |
 | Формулу сценария | [inference/scenario.py](../floodrisk/inference/scenario.py) |
 | Нормировку/каналы | [feature_transform.py](../floodrisk/feature_transform.py) + [configs/unet_v1.yaml](../configs/unet_v1.yaml) |
 | Объяснимость | [inference/explain.py](../floodrisk/inference/explain.py) |
+| Валидацию «реальность S1 ↔ предсказание» (IoU/F1) | [inference/validation.py](../floodrisk/inference/validation.py) |
 | JSON API | [api/routes_api.py](../floodrisk/api/routes_api.py), [api/schemas.py](../floodrisk/api/schemas.py) |
 | HTML/HTMX-роуты | [api/routes_html.py](../floodrisk/api/routes_html.py) |
 | Внешний вид | [templates/](../floodrisk/templates/) |
-| Поведение карты | [static/app.js](../static/app.js) |
+| Поведение карты (шторка, геокодер, permalink, подложки) | [static/app.js](../static/app.js) |
 | ZIP/PDF | [inference/exporter.py](../floodrisk/inference/exporter.py) |
 | Параметры сценариев | [configs/scenarios.yaml](../configs/scenarios.yaml) → `make seed` |
 | Гиперпараметры | [configs/unet_v1.yaml](../configs/unet_v1.yaml), [ml/train.py](../floodrisk/ml/train.py) |
 | Метрики | [ml/evaluate.py](../floodrisk/ml/evaluate.py), [ml/metrics.py](../floodrisk/ml/metrics.py) |
-| Сборку данных | [data/](../floodrisk/data/) + [configs/data.yaml](../configs/data.yaml) |
+| Сборку данных (мозаика тайлов!) | [data/preprocess.py](../floodrisk/data/preprocess.py) `mosaic_source_to_file`, [data/pipeline.py](../floodrisk/data/pipeline.py), [configs/data.yaml](../configs/data.yaml) |
+| Доп. регион (2-е событие) | новый `configs/data_<region>.yaml` → `data <action> --config …` (EPSG своей UTM-зоны) |
+| Объединение регионов для обучения (scaffolding) | [ml/combine.py](../floodrisk/ml/combine.py) + [ml/data.py](../floodrisk/ml/data.py) `tile_paths` (пер-строчные пути) |
 | Схему БД | [db/models.py](../floodrisk/db/models.py) (после — `make db-reset`) |
 
 **Перед «готово» (как в CI):** `ruff format --check . ; ruff check . ; pytest -m "not requires_network and not ml_smoke"`.

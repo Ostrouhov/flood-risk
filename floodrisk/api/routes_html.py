@@ -30,14 +30,14 @@ def _static_version(name: str) -> int:
 templates.env.globals["static_v"] = _static_version
 
 
-def _coverage() -> list[float] | None:
-    from floodrisk.inference.features import coverage_wgs84
-    from floodrisk.inference.service import feature_stack_path
+def _coverage() -> list[dict]:
+    """Покрытия всех региональных мозаик (Тулун, Канск, …) для контуров на карте."""
+    from floodrisk.inference.service import mosaic_coverages
 
     try:
-        return coverage_wgs84(feature_stack_path("v1"))
+        return mosaic_coverages()
     except Exception:
-        return None
+        return []
 
 
 @router.get("/", response_class=HTMLResponse)

@@ -20,6 +20,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from floodrisk import feature_transform as ft
+from floodrisk.settings import settings
 
 try:  # Lightning опционален для чистой загрузки данных
     import pytorch_lightning as pl
@@ -43,16 +44,30 @@ def _read_label(path: Path) -> np.ndarray:
 
 
 def tile_paths(cfg: dict, split: str) -> list[tuple[str, Path, Path]]:
-    """(tile_id, tile_path, label_path) для заданного split по index.parquet."""
+    """(tile_id, tile_path, label_path) для заданного split по index.parquet.
+
+    Мультирегион: если в index есть колонки ``tile_path``/``label_path`` (объединённый
+    датасет, см. floodrisk.ml.combine), берём пути построчно (резолв относительно
+    project_root). Иначе — одно-региональное поведение: ``tile_dir``/``label_dir`` + tile_id.
+    """
     d = cfg["data"]
     index = pd.read_parquet(d["index"])
+    rows = index[index["split"] == split]
+
+    if "tile_path" in index.columns and "label_path" in index.columns:
+
+        def _resolve(p: str) -> Path:
+            path = Path(p)
+            return path if path.is_absolute() else settings.project_root / path
+
+        return [
+            (r.tile_id, _resolve(r.tile_path), _resolve(r.label_path))
+            for r in rows.itertuples(index=False)
+        ]
+
     tile_dir = Path(d["tile_dir"])
     label_dir = Path(d["label_dir"])
-    rows = index[index["split"] == split]
-    out: list[tuple[str, Path, Path]] = []
-    for tid in rows["tile_id"]:
-        out.append((tid, tile_dir / f"{tid}.tif", label_dir / f"{tid}.tif"))
-    return out
+    return [(tid, tile_dir / f"{tid}.tif", label_dir / f"{tid}.tif") for tid in rows["tile_id"]]
 
 
 def compute_norm_stats(cfg: dict) -> dict:

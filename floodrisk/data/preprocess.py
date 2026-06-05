@@ -232,6 +232,66 @@ def reproject_to_grid(src_path, grid, resampling_name: str = "bilinear") -> np.n
     return dst
 
 
+def tiles_overlapping_grid(src_paths, grid) -> list[Path]:
+    """Тайлы, чьи границы пересекают целевую сетку (важно для общего raw на 2+ региона)."""
+    import rasterio
+    from rasterio.warp import transform_bounds
+
+    gx0, gy0, gx1, gy1 = grid.bounds()
+    w, s, e, n = transform_bounds(grid.crs, "EPSG:4326", gx0, gy0, gx1, gy1)
+    keep: list[Path] = []
+    for p in (Path(x) for x in src_paths):
+        try:
+            with rasterio.open(p) as src:
+                tw, ts, te, tn = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
+        except Exception:
+            continue
+        if not (te < w or tw > e or tn < s or ts > n):
+            keep.append(p)
+    return keep
+
+
+def mosaic_source_to_file(src_paths, grid, out_path) -> Path:
+    """Склеить ВСЕ тайлы источника, пересекающие сетку, в один GeoTIFF (CRS источника,
+    обрезка до bbox сетки), сохранив профиль/nodata.
+
+    Чинит мультитайловые источники (DEM/WorldCover/JRC покрываются несколькими 1°-тайлами):
+    раньше препроцесс брал ОДИН тайл (`_first`) → признаки рельефа были пусты вне его
+    покрытия (для второго региона при общем raw — пусты полностью). См. pipeline.run_preprocess.
+    """
+    import rasterio
+    from rasterio.merge import merge
+    from rasterio.warp import transform_bounds
+
+    keep = tiles_overlapping_grid(src_paths, grid)
+    if not keep:
+        gx0, gy0, gx1, gy1 = grid.bounds()
+        wsen = transform_bounds(grid.crs, "EPSG:4326", gx0, gy0, gx1, gy1)
+        raise FileNotFoundError(
+            f"ни один тайл источника не пересекает сетку (bbox WGS84 {[round(x, 2) for x in wsen]})"
+        )
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    srcs = [rasterio.open(p) for p in keep]
+    try:
+        gx0, gy0, gx1, gy1 = grid.bounds()
+        w, s, e, n = transform_bounds(grid.crs, "EPSG:4326", gx0, gy0, gx1, gy1)
+        bounds_src = transform_bounds("EPSG:4326", srcs[0].crs, w, s, e, n)
+        mosaic, mtransform = merge(srcs, bounds=bounds_src)
+        profile = srcs[0].profile.copy()
+    finally:
+        for sd in srcs:
+            sd.close()
+
+    profile.update(
+        height=mosaic.shape[1], width=mosaic.shape[2], transform=mtransform, compress="deflate"
+    )
+    with rasterio.open(out_path, "w", **profile) as dst:
+        dst.write(mosaic)
+    return out_path
+
+
 def write_feature_stack(bands: dict[str, np.ndarray], grid, out_path) -> Path:
     """Записать многоканальный GeoTIFF признаков (имена каналов — в описании)."""
     import rasterio

@@ -89,6 +89,10 @@ class GroundTruthResponse(BaseModel):
     bounds_wgs84: list[float] | None = None  # [south, west, north, east] для Leaflet
     metrics: dict | None = None
     threshold: float = 0.5
+    # experimental=True, если маска из невалидированного региона (напр. Канск): признаки
+    # корректны, но S1-лейблы не сверены с эталоном (пере-детекция).
+    experimental: bool = False
+    regions: list[str] | None = None
 
 
 class RunOut(BaseModel):

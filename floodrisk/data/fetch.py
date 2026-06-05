@@ -176,6 +176,13 @@ def _stac_items(catalog, *, collections, bbox, dt=None, retries: int = 6):
     return last
 
 
+def _bbox_tag(bbox: list[float]) -> str:
+    """Короткий тег bbox для имени файла — чтобы клипы ОДНОГО STAC-тайла под РАЗНЫЕ регионы
+    (общий ``raw/``) не коллизили по имени (напр. 10°-тайл JRC GSW покрывает 2 региона)."""
+    w, s, e, n = bbox
+    return f"{w:.1f}_{s:.1f}_{e:.1f}_{n:.1f}".replace("-", "m").replace(".", "p")
+
+
 def _fetch_pc_asset(
     catalog, collection: str, asset_key: str, bbox: list[float], out_dir: Path, *, dt=None
 ) -> dict:
@@ -184,11 +191,13 @@ def _fetch_pc_asset(
     items = _stac_items(catalog, collections=[collection], bbox=bbox, dt=dt)
     if not items:
         raise RuntimeError(f"PC: нет сцен {collection} для bbox={bbox} (dt={dt})")
+    tag = _bbox_tag(bbox)
     for item in items:
         if asset_key not in item.assets:
             continue
         href = item.assets[asset_key].href
-        dest = out_dir / collection / f"{item.id}.tif"
+        # bbox-тег в имени: один и тот же тайл, обрезанный под разные регионы, → разные файлы.
+        dest = out_dir / collection / f"{item.id}__{tag}.tif"
         if _clip_remote_cog(href, bbox, dest) is None:
             continue
         entries[f"{collection}:{item.id}"] = _prov_entry(href, dest)
