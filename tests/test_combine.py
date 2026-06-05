@@ -5,11 +5,21 @@
 
 from __future__ import annotations
 
+import importlib.util
+
 import pandas as pd
+import pytest
 
 from floodrisk.ml import combine
 from floodrisk.ml.data import tile_paths
 from floodrisk.settings import settings
+
+# combine работает через parquet (pandas to_parquet/read_parquet). Движок (pyarrow/
+# fastparquet) идёт с extras [data]/[ml] и отсутствует в CI (core+[dev]) → там пропускаем.
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("pyarrow") is None and importlib.util.find_spec("fastparquet") is None,
+    reason="нет parquet-движка (pyarrow/fastparquet); тесты combine требуют extras [data]/[ml]",
+)
 
 
 def _make_region(root, rv, event, tile_ids, splits):

@@ -18,6 +18,13 @@ from floodrisk.inference.features import InvalidBBox
 IN_COVERAGE = [100.64, 54.54, 100.89, 54.71]
 OUT_COVERAGE = [37.5, 55.6, 37.7, 55.8]
 
+# Тесты «в покрытии» требуют локальной мозаики признаков (data/processed/v1, gitignored).
+# В CI её нет → пропускаем (логика селектора вне покрытия проверяется отдельными тестами).
+_HAS_TULUN_MOSAIC = service.feature_stack_path("v1").exists()
+_requires_mosaic = pytest.mark.skipif(
+    not _HAS_TULUN_MOSAIC, reason="нет локальной мозаики data/processed/v1 (например в CI)"
+)
+
 
 # ──────────────── UTM-зона (чистая функция) ────────────────
 
@@ -68,6 +75,7 @@ def test_buffer_expands_bbox():
 # ──────────────── селектор источника ────────────────
 
 
+@_requires_mosaic
 def test_resolve_features_mosaic_in_coverage():
     raw, _t, _crs, used, region = service._resolve_features(IN_COVERAGE, "v1", "mosaic")
     assert used == "mosaic"
@@ -90,6 +98,7 @@ def test_resolve_features_auto_falls_back_to_online(monkeypatch):
     assert called["bbox"] == OUT_COVERAGE
 
 
+@_requires_mosaic
 def test_resolve_features_auto_uses_mosaic_in_coverage(monkeypatch):
     # в покрытии auto НЕ должен трогать онлайн-сборку
     def boom(*a, **k):
