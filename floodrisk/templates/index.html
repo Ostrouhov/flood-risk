@@ -114,17 +114,21 @@
       </section>
 
       <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Сравнение моделей</h2>
-        <button id="compare-btn"
+        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Валидация и сравнение</h2>
+        <button id="gt-btn"
           class="w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
+          onclick="floodrisk.compareGroundTruth()" x-bind:disabled="loading">Реальность S1 ↔ предсказание (шторка)</button>
+        <button id="compare-btn"
+          class="mt-2 w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
           onclick="floodrisk.compareModels()" x-bind:disabled="loading">U-Net ↔ baseline (шторка)</button>
         <button id="compare-exit"
           class="mt-2 hidden w-full rounded border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
           onclick="floodrisk.exitCompare()">× Выйти из сравнения</button>
         <div id="compare-table" class="mt-2"></div>
         <p class="mt-1 text-xs text-slate-400">
-          Сравнивает обе модели на текущей зоне и сценарии. Тяните разделитель: слева U-Net,
-          справа baseline. Численная суть вопроса M-2 — в таблице.
+          <b>Реальность S1</b>: справа — что реально затопило в 2019 (Sentinel-1), слева — предсказание;
+          в таблице IoU/F1 на зоне. Доступно только для Тулуна (валидированная зона).
+          <b>U-Net ↔ baseline</b>: численная суть вопроса M-2.
         </p>
       </section>
 

@@ -12,6 +12,7 @@ from floodrisk.api.schemas import (
     ExplainRequest,
     ExplainResponse,
     ExportResponse,
+    GroundTruthResponse,
     HealthResponse,
     ModelVersionOut,
     PointResponse,
@@ -22,6 +23,7 @@ from floodrisk.api.schemas import (
 )
 from floodrisk.db.repositories import get_run, list_model_versions, list_scenarios
 from floodrisk.db.session import get_session
+from floodrisk.settings import settings
 
 router = APIRouter(tags=["api"])
 
@@ -126,6 +128,42 @@ def get_run_point(run_id: str, lat: float, lon: float) -> PointResponse:
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="run_not_found") from None
     return PointResponse(lat=lat, lon=lon, probability=prob, in_bounds=prob is not None)
+
+
+@router.get("/runs/{run_id}/groundtruth", response_model=GroundTruthResponse)
+def get_run_groundtruth(run_id: str, threshold: float = 0.5) -> GroundTruthResponse:
+    """Реальная маска S1 «что затопило» + согласие с предсказанием на зоне.
+
+    Доступно только для размеченных событий (пилот — Тулун). Вне покрытия /
+    онлайн-режим → available=False. См. кластер «Научная валидация на карте».
+    """
+    import json
+
+    from floodrisk.inference import validation
+
+    run_dir = settings.runs_dir / run_id
+    if not (run_dir / "prediction.tif").exists():
+        raise HTTPException(status_code=404, detail="run_not_found")
+
+    # dataset_version и источник — из metadata.json расчёта (онлайн заведомо без маски).
+    meta_path = run_dir / "metadata.json"
+    dataset_version = "v1"
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if meta.get("source") == "online":
+            return GroundTruthResponse(available=False, threshold=threshold)
+        dataset_version = meta.get("dataset_version", "v1")
+
+    result = validation.ground_truth_for_run(run_id, dataset_version, threshold)
+    if result is None:
+        return GroundTruthResponse(available=False, threshold=threshold)
+    return GroundTruthResponse(
+        available=True,
+        png_url=result["png_url"],
+        bounds_wgs84=result["bounds_wgs84"],
+        metrics=result["metrics"],
+        threshold=result["threshold"],
+    )
 
 
 @router.post("/runs/{run_id}/export", response_model=ExportResponse)

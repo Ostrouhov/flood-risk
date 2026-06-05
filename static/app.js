@@ -23,10 +23,16 @@
     ? [(coverage[1] + coverage[3]) / 2, (coverage[0] + coverage[2]) / 2]
     : [54.6, 100.7];
   const map = L.map(mapEl).setView(center, 9);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  // Подложки (C2): карта OSM (дефолт) ↔ спутник Esri — overlay на реальной местности.
+  const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: "© OpenStreetMap contributors",
   }).addTo(map);
+  const sat = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: 19, attribution: "Esri, Maxar, Earthstar Geographics" },
+  );
+  L.control.layers({ "Карта (OSM)": osm, "Спутник (Esri)": sat }, null, { position: "topright" }).addTo(map);
 
   // Контур валидированного покрытия (A6): пунктир, не перехватывает клики.
   if (coverage) {
@@ -324,8 +330,9 @@
     if (state.divider) state.divider.style.left = dividerX + "px";
   }
 
-  function createDivider() {
+  function createDivider(labels) {
     if (state.divider) return;
+    labels = labels || ["", ""];
     const d = document.createElement("div");
     d.className = "cmp-divider";
     d.innerHTML = '<div class="cmp-handle">↔</div>';
@@ -334,11 +341,11 @@
     const lblL = document.createElement("div");
     lblL.className = "cmp-label";
     lblL.style.left = "8px";
-    lblL.textContent = "U-Net";
+    lblL.textContent = labels[0];
     const lblR = document.createElement("div");
     lblR.className = "cmp-label";
     lblR.style.right = "8px";
-    lblR.textContent = "baseline";
+    lblR.textContent = labels[1];
     mapEl.appendChild(lblL);
     mapEl.appendChild(lblR);
     state.cmpLabels = [lblL, lblR];
@@ -429,28 +436,33 @@
     exitCompare(false);
   };
 
-  function enterCompare(unet, base) {
+  // Обобщённая шторка: left/right = {url, bounds (wgs84 [S,W,N,E])}; opts.labels, opts.renderTable.
+  function enterCompare(left, right, opts) {
+    opts = opts || {};
+    const labels = opts.labels || ["", ""];
     exitCompare(true);
     if (state.currentOverlay) {
       map.removeLayer(state.currentOverlay);
       state.currentOverlay = null;
     }
     ensureComparePanes();
-    const ub = bbox2bounds(unet.bounds_wgs84);
-    state.cmpLeft = L.imageOverlay(unet.prediction_png_url, ub, {
+    const ub = bbox2bounds(left.bounds);
+    state.cmpLeft = L.imageOverlay(left.url, ub, {
       opacity: state.opacity,
       pane: "cmpL",
     }).addTo(map);
-    state.cmpRight = L.imageOverlay(base.prediction_png_url, bbox2bounds(base.bounds_wgs84), {
+    state.cmpRight = L.imageOverlay(right.url, bbox2bounds(right.bounds), {
       opacity: state.opacity,
       pane: "cmpR",
     }).addTo(map);
     map.fitBounds(ub);
     state.compare = true;
-    createDivider();
+    createDivider(labels);
     updateClip();
     map.on("move zoom moveend zoomend", updateClip);
-    renderCompareTable(unet, base);
+    const tbl = document.getElementById("compare-table");
+    if (tbl) tbl.innerHTML = "";
+    if (opts.renderTable) opts.renderTable();
     const exitBtn = document.getElementById("compare-exit");
     if (exitBtn) exitBtn.classList.remove("hidden");
   }
@@ -476,9 +488,54 @@
           state.toast("Не удалось сравнить модели", "error");
           return;
         }
-        enterCompare(unet, base);
+        enterCompare(
+          { url: unet.prediction_png_url, bounds: unet.bounds_wgs84 },
+          { url: base.prediction_png_url, bounds: base.bounds_wgs84 },
+          { labels: ["U-Net", "baseline"], renderTable: () => renderCompareTable(unet, base) },
+        );
       })
       .catch(() => state.toast("Ошибка сравнения моделей", "error"))
+      .finally(() => window.dispatchEvent(new Event("predict-end")));
+  };
+
+  // ── Валидация: шторка «предсказание ↔ реальность (S1)» + метрики (B1/B2) ────
+  function renderGtTable(m) {
+    const tbl = document.getElementById("compare-table");
+    if (!tbl) return;
+    const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toFixed(3));
+    const row = (label, val) =>
+      `<tr><td class="py-0.5 text-slate-600">${label}</td>` +
+      `<td class="text-right font-mono">${fmt(val)}</td></tr>`;
+    tbl.innerHTML =
+      `<div class="mb-1 text-xs text-slate-500">Совпадение с реальным разливом 2019 (на зоне, p≥${m.threshold})</div>` +
+      '<table class="w-full text-xs"><tbody>' +
+      row("IoU", m.iou) +
+      row("F1", m.f1) +
+      row("precision", m.precision) +
+      row("recall", m.recall) +
+      "</tbody></table>";
+  }
+
+  state.compareGroundTruth = function () {
+    if (!state.currentRunId || !state.currentPrediction) {
+      state.toast("Сначала постройте карту", "error");
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("predict-start", { detail: { online: false } }));
+    fetch(`/api/runs/${state.currentRunId}/groundtruth`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((gt) => {
+        if (!gt.available) {
+          state.toast("Реальная маска S1 доступна только для Тулуна (валидированная зона)", "error");
+          return;
+        }
+        enterCompare(
+          { url: state.currentPrediction.png_url, bounds: state.currentPrediction.bounds_wgs84 },
+          { url: gt.png_url, bounds: gt.bounds_wgs84 },
+          { labels: ["Предсказание", "Реальность (S1)"], renderTable: () => renderGtTable(gt.metrics) },
+        );
+      })
+      .catch(() => state.toast("Не удалось получить реальную маску", "error"))
       .finally(() => window.dispatchEvent(new Event("predict-end")));
   };
 
@@ -551,16 +608,22 @@
       }
       if (el.dataset.error) {
         // Ошибка predict (predict_error.html) — продублируем тостом (сайдбар легко не заметить).
+        state.currentPrediction = null;
         const aggEl = document.getElementById("aggregates");
         state.toast((aggEl && aggEl.textContent.trim()) || "Ошибка расчёта", "error");
         return;
       }
       if (png && boundsStr) {
-        const bounds = bbox2bounds(JSON.parse(boundsStr));
+        const boundsWgs84 = JSON.parse(boundsStr);
+        const bounds = bbox2bounds(boundsWgs84);
         state.currentOverlay = L.imageOverlay(png, bounds, {
           opacity: state.opacity,
         }).addTo(map);
         map.fitBounds(bounds);
+        // Запоминаем текущее предсказание для шторки «реальность ↔ предсказание» (B1).
+        state.currentPrediction = { png_url: png, bounds_wgs84: boundsWgs84 };
+      } else {
+        state.currentPrediction = null;
       }
       state.currentRunId = el.dataset.runId || null;
       const btn = document.getElementById("export-btn");

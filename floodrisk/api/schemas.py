@@ -78,6 +78,19 @@ class PointResponse(BaseModel):
     in_bounds: bool
 
 
+class GroundTruthResponse(BaseModel):
+    """Реальная маска затопления S1 и согласие с предсказанием на зоне запуска.
+
+    available=False — зона вне размеченной области (онлайн/вне Тулуна): маски нет.
+    """
+
+    available: bool
+    png_url: str | None = None
+    bounds_wgs84: list[float] | None = None  # [south, west, north, east] для Leaflet
+    metrics: dict | None = None
+    threshold: float = 0.5
+
+
 class RunOut(BaseModel):
     run_id: str
     bbox: list[float]
