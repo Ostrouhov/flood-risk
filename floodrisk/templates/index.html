@@ -29,6 +29,19 @@
   <div class="flex flex-1 overflow-hidden">
     <aside class="w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4 space-y-4">
       <section>
+        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Поиск места</h2>
+        <form onsubmit="event.preventDefault(); floodrisk.geocode(this.q.value)">
+          <div class="flex gap-2">
+            <input name="q" type="text" placeholder="напр. Канск, Тулун…"
+                   class="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm" />
+            <button type="submit" title="Найти и перелететь"
+                    class="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100">→</button>
+          </div>
+        </form>
+        <p class="mt-1 text-xs text-slate-400">Перелёт карты к месту (геокодер OpenStreetMap).</p>
+      </section>
+
+      <section>
         <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Сценарий</h2>
         <div class="space-y-2 text-sm">
           {% for s in scenarios %}

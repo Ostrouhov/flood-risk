@@ -275,6 +275,7 @@
     if (!scenario_id || !model_version || !state.zoneRect) return;
     if (!updateZoneSize()) return; // гард: зона слишком велика для онлайна
     exitCompare(true); // обычный расчёт выходит из режима сравнения
+    syncPermalink(); // зафиксировать вид в URL (воспроизводимость/шаринг)
     const bbox = zoneBbox().join(",");
     // online=true вне покрытия → оверлей покажет подсказку про долгий сбор данных.
     const detail = { online: !zoneInCoverage() };
@@ -675,8 +676,80 @@
     if (path && path.indexOf("/ui/predict") !== -1) state.currentXhr = null;
   });
 
-  // Стартовая зона = центр покрытия (или текущий вид вне покрытия).
-  setZone(defaultZoneBounds());
+  // ── Геокодер (C1): поиск места через Nominatim → прыжок карты ──────────────
+  state.geocode = function (q) {
+    q = (q || "").trim();
+    if (!q) return;
+    const url =
+      "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=" +
+      encodeURIComponent(q);
+    fetch(url, { headers: { "Accept-Language": "ru" } })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((arr) => {
+        if (!arr || !arr.length) {
+          state.toast("Место не найдено", "error");
+          return;
+        }
+        // Nominatim boundingbox = [south, north, west, east] (строки).
+        const b = arr[0].boundingbox.map(Number);
+        map.fitBounds([
+          [b[0], b[2]],
+          [b[1], b[3]],
+        ]);
+      })
+      .catch(() => state.toast("Геокодер недоступен", "error"));
+  };
+
+  // ── Permalink (C3): bbox+сценарий+модель в URL ────────────────────────────
+  function selectRadio(name, value) {
+    const el = document.querySelector(
+      'input[name="' + name + '"][value="' + value + '"]',
+    );
+    if (el) el.checked = true;
+  }
+
+  function syncPermalink() {
+    if (!state.zoneRect) return;
+    const params = new URLSearchParams();
+    params.set("bbox", zoneBbox().map((x) => x.toFixed(5)).join(","));
+    const scenario_id = checkedValue("scenario_id");
+    const model_version = checkedValue("model_version");
+    if (scenario_id) params.set("scenario", scenario_id);
+    if (model_version) params.set("model", model_version);
+    history.replaceState(null, "", "?" + params.toString());
+  }
+
+  function restoreFromPermalink() {
+    const p = new URLSearchParams(window.location.search);
+    let restoredZone = false;
+    const bboxStr = p.get("bbox");
+    if (bboxStr) {
+      const c = bboxStr.split(",").map(Number);
+      if (c.length === 4 && c.every(isFinite) && c[2] > c[0] && c[3] > c[1]) {
+        setZone(L.latLngBounds([c[1], c[0]], [c[3], c[2]]));
+        map.fitBounds([
+          [c[1], c[0]],
+          [c[3], c[2]],
+        ]);
+        restoredZone = true;
+      }
+    }
+    if (p.get("scenario")) selectRadio("scenario_id", p.get("scenario"));
+    if (p.get("model")) selectRadio("model_version", p.get("model"));
+    return restoredZone;
+  }
+
+  // Стартовая зона: из ссылки (если есть) либо центр покрытия.
+  const restored = restoreFromPermalink();
+  if (!restored) setZone(defaultZoneBounds());
 
   window.floodrisk = state;
+
+  // Авто-пересчёт из ссылки только для валидированной зоны (быстрая мозаика) —
+  // вне покрытия онлайн может быть долгим, не запускаем без явного действия.
+  if (restored && zoneInCoverage()) {
+    setTimeout(function () {
+      state.recalc();
+    }, 300);
+  }
 })();
