@@ -20,6 +20,11 @@ M2_METRICS = ["IoU", "F1", "PR-AUC"]
 
 
 def _unet_predictions(cfg: dict, split: str) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Инференс U-Net (чекпойнт из ``best.txt``) на split → (трушки, вероятности) по тайлам.
+
+    Каждый тайл — отдельный плоский массив [HW] (не конкатенируем) — нужно для
+    bootstrap-CI с ресэмплингом по тайлам (см. ``_model_report``/``metrics.bootstrap_ci``).
+    """
     import torch
 
     from floodrisk.ml.model import UNetLitModule
@@ -45,6 +50,11 @@ def _unet_predictions(cfg: dict, split: str) -> tuple[list[np.ndarray], list[np.
 
 
 def _baseline_predictions(cfg: dict, split: str) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Инференс baseline (RandomForest) на split → (трушки, вероятности) по тайлам.
+
+    Признаки разворачиваются в попиксельные строки [HW,C] (лес видит пиксель в отрыве
+    от соседей). Формат выхода — как у ``_unet_predictions`` (список по тайлам для CI).
+    """
     from floodrisk.ml.baseline import load_baseline
 
     clf = load_baseline(cfg["artifact_path"])

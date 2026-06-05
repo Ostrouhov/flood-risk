@@ -13,7 +13,7 @@ import rasterio
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window, bounds, from_bounds
 
-WGS84 = "EPSG:4326"
+from floodrisk.inference.raster import WGS84
 
 
 class OutOfCoverage(Exception):

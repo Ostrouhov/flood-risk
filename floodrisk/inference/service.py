@@ -26,6 +26,8 @@ from floodrisk.db.repositories import (
 )
 from floodrisk.inference import features as feat
 from floodrisk.inference import online_features as online
+from floodrisk.inference.raster import WGS84, reproject_to_wgs84, write_geotiff
+from floodrisk.inference.regions import REGION_LABELS, VALIDATED_REGIONS
 from floodrisk.inference.registry import load_model
 from floodrisk.inference.scenario import apply_scenario
 from floodrisk.settings import settings
@@ -51,13 +53,6 @@ class UnknownModel(Exception):
 
 def feature_stack_path(dataset_version: str) -> Path:
     return settings.project_root / "data" / "processed" / dataset_version / "features" / "stack.tif"
-
-
-# Регионы с офлайн-мозаикой признаков (валидированные/быстрые). Человекочитаемые подписи и
-# отметка «валидирован» (для UI/валидации): Тулун обучен и проверен; Канск — демо (признаки
-# корректны, но S1-лейблы не валидированы эталоном).
-REGION_LABELS = {"v1": "Тулун", "kansk": "Канск"}
-VALIDATED_REGIONS = {"v1"}
 
 
 def _region_stacks() -> list[Path]:
@@ -169,54 +164,28 @@ def _resolve_model(session: Session, model_version: str):
     return rec
 
 
-def _write_geotiff(path: Path, prob: np.ndarray, transform, crs) -> None:
-    h, w = prob.shape
-    profile = {
-        "driver": "GTiff",
-        "height": h,
-        "width": w,
-        "count": 1,
-        "dtype": "float32",
-        "crs": crs,
-        "transform": transform,
-        "compress": "lzw",
-    }
-    with rasterio.open(path, "w", **profile) as dst:
-        dst.write(prob.astype("float32"), 1)
-
-
 def _write_png_wgs84(path: Path, prob: np.ndarray, transform, crs) -> list[float]:
-    """Репроекция вероятностей в EPSG:4326, Viridis+alpha. Возвращает bounds [S,W,N,E]."""
+    """Репроекция вероятностей в EPSG:4326, Viridis+alpha. Возвращает bounds [S,W,N,E].
+
+    Ядро репроекции — общий ``raster.reproject_to_wgs84`` (та же математика, что для
+    реальной маски в ``validation`` → совпадение bounds для шторки). Здесь — только
+    раскраска: Viridis по вероятности, alpha 180 на покрытии (NaN → прозрачно).
+    """
     import matplotlib
 
     matplotlib.use("Agg")
     from matplotlib import cm
     from PIL import Image
-    from rasterio.transform import array_bounds
-    from rasterio.warp import Resampling, calculate_default_transform, reproject
+    from rasterio.warp import Resampling
 
-    h, w = prob.shape
-    left, bottom, right, top = array_bounds(h, w, transform)
-    dst_crs = "EPSG:4326"
-    dt, dw, dh = calculate_default_transform(crs, dst_crs, w, h, left, bottom, right, top)
-    dst = np.full((dh, dw), np.nan, dtype="float32")
-    reproject(
-        source=prob.astype("float32"),
-        destination=dst,
-        src_transform=transform,
-        src_crs=crs,
-        dst_transform=dt,
-        dst_crs=dst_crs,
-        resampling=Resampling.bilinear,
-        dst_nodata=float("nan"),
+    dst, bounds = reproject_to_wgs84(
+        prob, transform, crs, resampling=Resampling.bilinear, fill=np.nan, dst_nodata=float("nan")
     )
     valid = ~np.isnan(dst)
     rgba = (cm.viridis(np.clip(np.nan_to_num(dst), 0.0, 1.0)) * 255).astype("uint8")
     rgba[..., 3] = np.where(valid, 180, 0).astype("uint8")
     Image.fromarray(rgba, "RGBA").save(path)
-
-    w4, s4, e4, n4 = array_bounds(dh, dw, dt)
-    return [float(s4), float(w4), float(n4), float(e4)]
+    return bounds
 
 
 def _aggregates(prob: np.ndarray, res_m: float) -> dict:
@@ -244,7 +213,7 @@ def sample_point(run_id: str, lat: float, lon: float) -> float | None:
 
     with rasterio.open(tif_path) as src:
         try:
-            xs, ys = warp_transform("EPSG:4326", src.crs, [lon], [lat])
+            xs, ys = warp_transform(WGS84, src.crs, [lon], [lat])
         except Exception:
             # Точка вне домена проекции растра (напр. далеко от UTM-зоны) → вне зоны.
             return None
@@ -302,7 +271,7 @@ def predict(
     tif_path = run_dir / "prediction.tif"
     png_path = run_dir / "prediction.png"
 
-    _write_geotiff(tif_path, prob, transform, crs)
+    write_geotiff(tif_path, prob, transform, crs)
     bounds_wgs84 = _write_png_wgs84(png_path, prob, transform, crs)
     res_m = abs(transform.a)
     aggregates = _aggregates(prob, res_m)

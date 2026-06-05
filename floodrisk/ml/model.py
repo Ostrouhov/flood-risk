@@ -37,6 +37,11 @@ def build_unet(model_cfg: dict) -> nn.Module:
 
 
 def dice_loss(logits: torch.Tensor, target: torch.Tensor, eps: float = 1.0) -> torch.Tensor:
+    """Soft Dice loss (1 − Dice) по сигмоиде логитов; ``eps`` сглаживает деление.
+
+    Считается по-образцово (flatten по пикселям внутри батча) и усредняется. Дополняет
+    BCE/focal: устойчив к дисбалансу классов (flood ~1.2%), штрафуя за перекрытие зон.
+    """
     prob = torch.sigmoid(logits)
     p = prob.flatten(1)
     t = target.flatten(1)
@@ -49,6 +54,11 @@ def dice_loss(logits: torch.Tensor, target: torch.Tensor, eps: float = 1.0) -> t
 def focal_loss(
     logits: torch.Tensor, target: torch.Tensor, gamma: float = 2.0, alpha: float = 0.75
 ) -> torch.Tensor:
+    """Focal loss (Lin et al.): BCE с весом ``(1−p_t)^gamma`` и балансом классов ``alpha``.
+
+    ``gamma`` гасит вклад уверенно классифицированных пикселей, ``alpha`` поднимает вес
+    редкого положительного класса (затопление). Альтернатива BCE в ``_compute_loss``.
+    """
     bce = F.binary_cross_entropy_with_logits(logits, target, reduction="none")
     p = torch.sigmoid(logits)
     p_t = p * target + (1 - p) * (1 - target)

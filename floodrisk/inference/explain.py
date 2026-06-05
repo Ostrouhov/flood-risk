@@ -21,10 +21,10 @@ from floodrisk import feature_transform as ft
 from floodrisk.db.models import Explanation, ModelVersion
 from floodrisk.db.repositories import get_run
 from floodrisk.inference import online_features as online
+from floodrisk.inference.raster import WGS84, reproject_to_wgs84
 from floodrisk.inference.service import _load_norm_stats
 from floodrisk.settings import settings
 
-WGS84 = "EPSG:4326"
 TILE = 256
 
 
@@ -108,27 +108,19 @@ def _unet_attributions(checkpoint_path: str, fnorm: np.ndarray, n_steps: int = 1
 
 
 def _to_wgs84_png(arr: np.ndarray, transform, crs, path: Path, cmap: str) -> list[float]:
-    """Знаковую карту атрибуции → PNG в EPSG:4326 (нормировка по max|·|). Возвращает [S,W,N,E]."""
+    """Знаковую карту атрибуции → PNG в EPSG:4326 (нормировка по max|·|). Возвращает [S,W,N,E].
+
+    Ядро репроекции — общий ``raster.reproject_to_wgs84``; здесь — только знаковая
+    нормировка [-m,m]→[0,1] и расходящаяся цветовая шкала (alpha 200 на покрытии).
+    """
     import matplotlib
 
     matplotlib.use("Agg")
     from PIL import Image
-    from rasterio.transform import array_bounds
-    from rasterio.warp import Resampling, calculate_default_transform, reproject
+    from rasterio.warp import Resampling
 
-    h, w = arr.shape
-    left, bottom, right, top = array_bounds(h, w, transform)
-    dt, dw, dh = calculate_default_transform(crs, WGS84, w, h, left, bottom, right, top)
-    dst = np.full((dh, dw), np.nan, dtype="float32")
-    reproject(
-        source=arr.astype("float32"),
-        destination=dst,
-        src_transform=transform,
-        src_crs=crs,
-        dst_transform=dt,
-        dst_crs=WGS84,
-        resampling=Resampling.bilinear,
-        dst_nodata=float("nan"),
+    dst, bounds = reproject_to_wgs84(
+        arr, transform, crs, resampling=Resampling.bilinear, fill=np.nan, dst_nodata=float("nan")
     )
     valid = ~np.isnan(dst)
     m = float(np.nanmax(np.abs(dst))) or 1.0
@@ -136,8 +128,7 @@ def _to_wgs84_png(arr: np.ndarray, transform, crs, path: Path, cmap: str) -> lis
     rgba = (matplotlib.colormaps[cmap](norm) * 255).astype("uint8")
     rgba[..., 3] = np.where(valid, 200, 0).astype("uint8")
     Image.fromarray(rgba, "RGBA").save(path)
-    w4, s4, e4, n4 = array_bounds(dh, dw, dt)
-    return [float(s4), float(w4), float(n4), float(e4)]
+    return bounds
 
 
 def explain(session: Session, run_id: str, lat: float, lon: float, *, top_n: int = 5) -> dict:

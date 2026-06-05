@@ -20,17 +20,13 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
+from floodrisk.inference.raster import reproject_to_wgs84
+from floodrisk.inference.regions import VALIDATED_REGIONS
 from floodrisk.settings import settings
 
-WGS84 = "EPSG:4326"
 # Цвет реальной маски на карте (красный) — контрастен к Viridis-предсказанию.
 MASK_RGB = (239, 68, 68)
 MASK_ALPHA = 165
-
-
-# Регионы с валидированными лейблами (эталон/проверка). Канск — демо: признаки корректны,
-# но S1-маска не валидирована эталоном (пере-детекция) → помечаем experimental.
-VALIDATED_REGIONS = {"v1"}
 
 
 def label_mask_paths(dataset_version: str | None = None) -> list[Path]:
@@ -122,36 +118,24 @@ def _reproject_mask_to_grid(mask_path: Path, dst_crs, dst_transform, shape):
 def _write_mask_png_wgs84(path: Path, mask01: np.ndarray, transform, crs) -> list[float]:
     """Бинарная маска → PNG (EPSG:4326), сплошной красный с alpha; вне воды — прозрачно.
 
-    Bounds считаются той же математикой, что ``service._write_png_wgs84`` →
-    совпадают с prediction.png (нужно для шторки). Возвращает [S, W, N, E].
+    Ядро репроекции — общий ``raster.reproject_to_wgs84`` (та же математика, что у
+    ``service._write_png_wgs84`` → совпадение bounds с prediction.png для шторки).
+    Ресэмплинг nearest сохраняет бинарность маски. Возвращает [S, W, N, E].
     """
     from PIL import Image
-    from rasterio.transform import array_bounds
-    from rasterio.warp import Resampling, calculate_default_transform, reproject
+    from rasterio.warp import Resampling
 
-    h, w = mask01.shape
-    left, bottom, right, top = array_bounds(h, w, transform)
-    dt, dw, dh = calculate_default_transform(crs, WGS84, w, h, left, bottom, right, top)
-    dst = np.zeros((dh, dw), dtype="float32")
-    reproject(
-        source=mask01.astype("float32"),
-        destination=dst,
-        src_transform=transform,
-        src_crs=crs,
-        dst_transform=dt,
-        dst_crs=WGS84,
-        resampling=Resampling.nearest,
+    dst, bounds = reproject_to_wgs84(
+        mask01, transform, crs, resampling=Resampling.nearest, fill=0.0
     )
     flooded = dst > 0.5
-    rgba = np.zeros((dh, dw, 4), dtype="uint8")
+    rgba = np.zeros((*dst.shape, 4), dtype="uint8")
     rgba[..., 0] = MASK_RGB[0]
     rgba[..., 1] = MASK_RGB[1]
     rgba[..., 2] = MASK_RGB[2]
     rgba[..., 3] = np.where(flooded, MASK_ALPHA, 0).astype("uint8")
     Image.fromarray(rgba, "RGBA").save(path)
-
-    w4, s4, e4, n4 = array_bounds(dh, dw, dt)
-    return [float(s4), float(w4), float(n4), float(e4)]
+    return bounds
 
 
 def ground_truth_for_run(run_id: str, dataset_version: str, threshold: float = 0.5) -> dict | None:

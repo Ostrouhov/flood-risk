@@ -46,9 +46,10 @@ def _read_label(path: Path) -> np.ndarray:
 def tile_paths(cfg: dict, split: str) -> list[tuple[str, Path, Path]]:
     """(tile_id, tile_path, label_path) для заданного split по index.parquet.
 
-    Мультирегион: если в index есть колонки ``tile_path``/``label_path`` (объединённый
-    датасет, см. floodrisk.ml.combine), берём пути построчно (резолв относительно
-    project_root). Иначе — одно-региональное поведение: ``tile_dir``/``label_dir`` + tile_id.
+    Мультирегион (SCAFFOLDING под v2, пока не задействовано в проде): если в index есть
+    колонки ``tile_path``/``label_path`` (объединённый датасет, см. floodrisk.ml.combine),
+    берём пути построчно (резолв относительно project_root). Иначе — одно-региональное
+    поведение (актуальный v1): ``tile_dir``/``label_dir`` + tile_id.
     """
     d = cfg["data"]
     index = pd.read_parquet(d["index"])
@@ -106,6 +107,11 @@ class FloodTileDataset(Dataset):
     """In-RAM кэш тайлов + нормировка + (для train) аугментации."""
 
     def __init__(self, cfg: dict, split: str, *, augment: bool, seed: int = 42):
+        """Грузит и НОРМИРУЕТ все тайлы split'а в RAM сразу (жадно, в __init__).
+
+        ``augment`` включает геометрические аугментации в ``__getitem__`` (только train);
+        ``seed`` фиксирует их ГПСЧ для воспроизводимости.
+        """
         self.items = tile_paths(cfg, split)
         self.mean, self.std = load_norm_stats(cfg)
         self.aug_names = list(cfg["data"].get("augmentations", [])) if augment else []

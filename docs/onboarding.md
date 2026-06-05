@@ -68,6 +68,15 @@
 - **Этап 5 — объяснимость (FR-10/18).** [inference/explain.py](../floodrisk/inference/explain.py): captum IG по U-Net (18→7 признаков) + RF feature_importances; топ-5 + PNG-слои magma.
 - **Этап 6 — документация и приёмка (FR-19/20, M-1…7).** README, Dockerfile (CPU-torch), [reports/latency.md](../reports/latency.md), [reports/acceptance.md](../reports/acceptance.md).
 
+### Расширения после Этапа 6 (2026-06)
+
+Не из исходного плана этапов, добавлено итеративно (см. `reports/acceptance.md` и авто-память):
+
+- **Глобальный онлайн-режим** — инференс по любому bbox; признаки собираются на лету ([online_features.py](../floodrisk/inference/online_features.py)), `source=auto/mosaic/online`.
+- **UX-кластеры 1–3** — рисуемый bbox, инспектор точки, метаданные, прозрачность; swipe U-Net↔baseline; **валидация «реальность S1 ↔ предсказание»** ([validation.py](../floodrisk/inference/validation.py), `GET /api/runs/{id}/groundtruth`) с живыми IoU/F1; геокодер (Nominatim), permalink, подложка-спутник (Esri).
+- **🛠 КРИТ-багфикс признаков** — `run_preprocess` брал ОДИН тайл вместо мозаики → рельеф пуст в ~94%; фикс `preprocess.mosaic_source_to_file`; **Тулун перестроен и переобучен**, M-2 переоценён на валидных данных (всё ещё FAIL, но честно).
+- **Мультирегион (демо)** — 2-й регион **Канск**; инференс выбирает региональную мозаику по bbox (`service._mosaic_stacks`); 2 контура покрытия; Канск помечен `experimental` (S1-лейблы шумные, не в M-2). `ml/combine.py` + мультирегион-`tile_paths` — scaffolding под обучение на 2+ событиях (НЕ задействовано).
+
 ---
 
 ## Часть 4. Как пользоваться

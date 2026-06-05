@@ -24,6 +24,7 @@ import numpy as np
 
 from floodrisk import feature_transform as ft
 from floodrisk.inference.features import InvalidBBox
+from floodrisk.inference.raster import WGS84
 
 # ── параметры онлайн-сборки ──
 RES_M = 30.0  # как при обучении датасета v1
@@ -37,8 +38,6 @@ GDAL_HTTP_OPTS = {
     "GDAL_HTTP_MAX_RETRY": "2",
     "GDAL_HTTP_RETRY_DELAY": "1",
 }
-
-WGS84 = "EPSG:4326"
 
 
 class BBoxTooLarge(Exception):
