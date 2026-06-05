@@ -26,15 +26,16 @@
   const center = coverage
     ? [(coverage[1] + coverage[3]) / 2, (coverage[0] + coverage[2]) / 2]
     : [54.6, 100.7];
-  const map = L.map(mapEl).setView(center, 9);
+  // attributionControl:false — убирает угловой бейдж Leaflet (флаг + «OpenStreetMap»);
+  // кредит источников вынесен в футер страницы (вежливость к OSM/Esri).
+  const map = L.map(mapEl, { attributionControl: false }).setView(center, 9);
   // Подложки (C2): карта OSM (дефолт) ↔ спутник Esri — overlay на реальной местности.
   const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
-    attribution: "© OpenStreetMap contributors",
   }).addTo(map);
   const sat = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    { maxZoom: 19, attribution: "Esri, Maxar, Earthstar Geographics" },
+    { maxZoom: 19 },
   );
   L.control.layers({ "Карта (OSM)": osm, "Спутник (Esri)": sat }, null, { position: "topright" }).addTo(map);
 
@@ -638,16 +639,29 @@
       state.toast("Сначала постройте карту", "error");
       return;
     }
+    // Индикатор загрузки: иначе кнопка «молчит» во время fetch и кажется зависшей.
+    const btn = document.getElementById("hotspots-btn");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Ищу зоны риска…";
+    }
     fetch(`/api/runs/${state.currentRunId}/hotspots`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((res) => {
         if (!res.available || !res.hotspots.length) {
           state.toast("Кластеры риска не найдены (p≥0.5)", "error");
+          clearHotspots(); // вернуть исходную надпись кнопки
           return;
         }
-        renderHotspots(res);
+        renderHotspots(res); // сам проставит «Скрыть точки»
       })
-      .catch(() => state.toast("Не удалось получить горячие точки", "error"));
+      .catch(() => {
+        state.toast("Не удалось получить горячие точки", "error");
+        clearHotspots();
+      })
+      .finally(() => {
+        if (btn) btn.disabled = false;
+      });
   };
 
   state.exportRun = function () {
@@ -723,6 +737,7 @@
         state.currentPrediction = null;
         const aggEl = document.getElementById("aggregates");
         state.toast((aggEl && aggEl.textContent.trim()) || "Ошибка расчёта", "error");
+        window.dispatchEvent(new CustomEvent("run-ready", { detail: { ok: false } }));
         return;
       }
       if (png && boundsStr) {
@@ -738,8 +753,10 @@
         state.currentPrediction = null;
       }
       state.currentRunId = el.dataset.runId || null;
-      const btn = document.getElementById("export-btn");
-      if (btn) btn.disabled = !state.currentRunId;
+      // Активирует инструменты группы «Анализ» (Alpine hasRun): экспорт/хотспоты/сравнение.
+      window.dispatchEvent(
+        new CustomEvent("run-ready", { detail: { ok: !!state.currentRunId } }),
+      );
       document.getElementById("export-result").innerHTML = "";
     }
 
@@ -853,6 +870,8 @@
   // Стартовая зона: из ссылки (если есть) либо центр покрытия.
   const restored = restoreFromPermalink();
   if (!restored) setZone(defaultZoneBounds());
+  // Синхронизировать шапку (активные сценарий/модель) после возможного restore из permalink.
+  window.dispatchEvent(new CustomEvent("selection-changed"));
 
   window.floodrisk = state;
 

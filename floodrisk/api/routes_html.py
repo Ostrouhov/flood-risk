@@ -44,7 +44,6 @@ def _coverage() -> list[dict]:
 def index(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
     models = list_model_versions(session)
     coverage = _coverage()  # [W,S,E,N] или None
-    model_label = f"{models[0].name}-{models[0].version}" if models else "— (не загружена)"
     # View-model сценариев: распарсенные params (мм/сут, повторяемость) для подписей в UI (A5).
     scenarios = []
     for s in list_scenarios(session):
@@ -64,7 +63,6 @@ def index(request: Request, session: Session = Depends(get_session)) -> HTMLResp
             "title": "floodrisk",
             "scenarios": scenarios,
             "models": models,
-            "model_label": model_label,
             "coverage": coverage,
         },
     )
@@ -110,6 +108,11 @@ def ui_predict(
         return templates.TemplateResponse(
             request, "fragments/predict_error.html", {"message": str(exc)}
         )
+    from floodrisk.inference.regions import REGION_LABELS
+
+    # Какой региональной мозаикой реально покрыт bbox (Тулун/Канск), не датасет модели.
+    feature_region = result["metadata"].get("feature_region") or ""
+    region_label = REGION_LABELS.get(feature_region, feature_region or "регион")
     return templates.TemplateResponse(
         request,
         "fragments/predict_result.html",
@@ -120,6 +123,7 @@ def ui_predict(
             "aggregates": result["aggregates"],
             "experimental": result["metadata"]["experimental"],
             "metadata": result["metadata"],
+            "region_label": region_label,
         },
     )
 

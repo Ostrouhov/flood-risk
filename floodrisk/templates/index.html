@@ -4,6 +4,8 @@
 <div class="flex h-full w-full flex-col"
      x-data="{
        loading: false, mode: 'view', opacity: 0.7,
+       hasRun: false, panels: { analysis: false },
+       activeModel: '', activeScenario: '',
        toasts: [], _tid: 0,
        elapsed: 0, _timer: null, online: false,
        pushToast(d) {
@@ -16,170 +18,222 @@
          clearInterval(this._timer);
          this._timer = setInterval(() => { this.elapsed += 1; }, 1000);
        },
-       endLoad() { this.loading = false; clearInterval(this._timer); this._timer = null; }
+       endLoad() { this.loading = false; clearInterval(this._timer); this._timer = null; },
+       syncSelection() {
+         const m = this.$el.querySelector('input[name=model_version]:checked');
+         const s = this.$el.querySelector('input[name=scenario_id]:checked');
+         if (m) this.activeModel = m.value;
+         if (s) this.activeScenario = s.value;
+       }
      }"
+     x-init="syncSelection()"
      @predict-start.window="startLoad($event.detail)" @predict-end.window="endLoad()"
+     @run-ready.window="if ($event.detail.ok && !hasRun) panels.analysis = true; hasRun = $event.detail.ok"
+     @selection-changed.window="syncSelection()"
      @mode-changed.window="mode = $event.detail"
      @app-toast.window="pushToast($event.detail)">
   <header class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
     <h1 class="text-lg font-semibold">floodrisk <span class="text-xs font-normal text-slate-500">прототип</span></h1>
-    <div class="text-xs text-slate-500">модель: <span class="font-mono">{{ model_label }}</span></div>
+    <div class="text-xs text-slate-500">
+      <span class="font-mono text-slate-700" x-text="activeScenario || '—'"></span>
+      <span class="text-slate-300">·</span>
+      <span class="font-mono text-slate-700" x-text="activeModel || '—'"></span>
+    </div>
   </header>
 
   <div class="flex flex-1 overflow-hidden">
-    <aside class="w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4 space-y-4">
-      <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Поиск места</h2>
-        <form onsubmit="event.preventDefault(); floodrisk.geocode(this.q.value)">
+    <aside class="w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4">
+      {# ── ГРУППА 1: ПАРАМЕТРЫ (первичный поток ввода, всегда видна) ──────────── #}
+      <div class="space-y-4">
+        <h2 class="text-[11px] font-bold uppercase tracking-wider text-slate-400">1 · Параметры</h2>
+
+        <section>
+          <label class="mb-1 block text-xs font-medium text-slate-600">Место</label>
+          <form onsubmit="event.preventDefault(); floodrisk.geocode(this.q.value)">
+            <div class="flex gap-2">
+              <input name="q" type="text" placeholder="напр. Канск, Тулун…"
+                     class="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm" />
+              <button type="submit" title="Найти и перелететь"
+                      class="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100">→</button>
+            </div>
+          </form>
+        </section>
+
+        <section>
+          <label class="mb-1 block text-xs font-medium text-slate-600">Зона расчёта</label>
           <div class="flex gap-2">
-            <input name="q" type="text" placeholder="напр. Канск, Тулун…"
-                   class="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm" />
-            <button type="submit" title="Найти и перелететь"
-                    class="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100">→</button>
+            <button id="draw-btn"
+              class="flex-1 rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
+              onclick="floodrisk.armDraw()">Выделить на карте</button>
+            <button
+              class="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
+              onclick="floodrisk.resetZone()" title="Сбросить к валидированной зоне">↺</button>
           </div>
-        </form>
-        <p class="mt-1 text-xs text-slate-400">Перелёт карты к месту (геокодер OpenStreetMap).</p>
-      </section>
+          <div id="zone-size" class="mt-1 text-xs text-slate-500">—</div>
+          <div id="zone-warning" class="mt-1 hidden rounded bg-amber-100 px-2 py-1 text-xs text-amber-800"></div>
+          <div x-data="{ h: false }" class="mt-1">
+            <button type="button" class="text-[11px] text-slate-400 hover:text-slate-600" @click="h = !h"
+                    x-text="h ? '− свернуть' : '? как это работает'"></button>
+            <p x-show="h" x-transition class="mt-1 text-xs text-slate-400">
+              Нарисуйте прямоугольник на карте. Внутри валидированных зон (Тулун, Канск) —
+              быстрая мозаика; вне — признаки собираются онлайн (экспериментально).
+            </p>
+          </div>
+        </section>
 
-      <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Сценарий</h2>
-        <div class="space-y-2 text-sm">
-          {% for s in scenarios %}
-          <label class="block">
-            <span class="flex items-center gap-2">
-              <input type="radio" name="scenario_id" value="{{ s.scenario_id }}"
-                     {% if loop.first %}checked{% endif %}
-                     onchange="floodrisk.recalc()" />
-              <span>{{ s.scenario_id }} <span class="text-slate-400">— {{ s.name }}</span></span>
-            </span>
-            {% if s.precip_mm and s.return_period %}
-            <span class="ml-6 block text-xs text-slate-400">
-              ливень {{ s.precip_mm }} мм/сут · повторяемость {{ s.return_period }} лет
-            </span>
-            {% endif %}
-          </label>
-          {% else %}
-          <div class="text-slate-400 italic">нет сценариев (выполните make seed)</div>
-          {% endfor %}
-        </div>
-        <p class="mt-2 text-xs text-slate-400">
-          Сценарий применяется пост-сдвигом логита (β=log10(RP/10)) — эвристика, не обученная зависимость.
-        </p>
-      </section>
+        <section>
+          <label class="mb-1.5 block text-xs font-medium text-slate-600">Сценарий осадков</label>
+          <div class="space-y-2 text-sm">
+            {% for s in scenarios %}
+            <label class="block">
+              <span class="flex items-center gap-2">
+                <input type="radio" name="scenario_id" value="{{ s.scenario_id }}"
+                       {% if loop.first %}checked{% endif %}
+                       @change="activeScenario = $event.target.value"
+                       onchange="floodrisk.recalc()" />
+                <span>{{ s.scenario_id }} <span class="text-slate-400">— {{ s.name }}</span></span>
+              </span>
+              {% if s.precip_mm and s.return_period %}
+              <span class="ml-6 block text-xs text-slate-400">
+                ливень {{ s.precip_mm }} мм/сут · повторяемость {{ s.return_period }} лет
+              </span>
+              {% endif %}
+            </label>
+            {% else %}
+            <div class="text-slate-400 italic">нет сценариев (выполните make seed)</div>
+            {% endfor %}
+          </div>
+          <div x-data="{ h: false }" class="mt-2">
+            <button type="button" class="text-[11px] text-slate-400 hover:text-slate-600" @click="h = !h"
+                    x-text="h ? '− свернуть' : '? про сценарий'"></button>
+            <p x-show="h" x-transition class="mt-1 text-xs text-slate-400">
+              Сценарий применяется пост-сдвигом логита (β=log10(RP/10)) — эвристика, не обученная зависимость.
+            </p>
+          </div>
+        </section>
 
-      <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Модель</h2>
-        <div class="space-y-1 text-sm">
-          {% for m in models %}
-          <label class="flex items-center gap-2">
-            <input type="radio" name="model_version" value="{{ m.name }}-{{ m.version }}"
-                   {% if m.name == 'unet' %}checked{% elif loop.first %}checked{% endif %} />
-            <span class="font-mono">{{ m.name }}-{{ m.version }}</span>
-          </label>
-          {% else %}
-          <div class="text-slate-400 italic">нет моделей (выполните make seed)</div>
-          {% endfor %}
-        </div>
-      </section>
+        <section>
+          <label class="mb-1.5 block text-xs font-medium text-slate-600">Модель</label>
+          <div class="space-y-1 text-sm">
+            {% for m in models %}
+            <label class="flex items-center gap-2">
+              <input type="radio" name="model_version" value="{{ m.name }}-{{ m.version }}"
+                     {% if m.name == 'unet' %}checked{% elif loop.first %}checked{% endif %}
+                     @change="activeModel = $event.target.value" />
+              <span class="font-mono">{{ m.name }}-{{ m.version }}</span>
+            </label>
+            {% else %}
+            <div class="text-slate-400 italic">нет моделей (выполните make seed)</div>
+            {% endfor %}
+          </div>
+        </section>
 
-      <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Область (зона)</h2>
-        <div class="flex gap-2">
-          <button id="draw-btn"
-            class="flex-1 rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
-            onclick="floodrisk.armDraw()">Выделить на карте</button>
-          <button
-            class="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
-            onclick="floodrisk.resetZone()" title="Сбросить к валидированной зоне">↺</button>
-        </div>
-        <div id="zone-size" class="mt-1 text-xs text-slate-500">—</div>
-        <div id="zone-warning" class="mt-1 hidden rounded bg-amber-100 px-2 py-1 text-xs text-amber-800"></div>
-        <p class="mt-1 text-xs text-slate-400">
-          Нарисуйте прямоугольник на карте. Внутри валидированных зон (Тулун, Канск) —
-          быстрая мозаика; вне — признаки собираются онлайн (экспериментально).
-        </p>
         <button id="recalc-btn"
-          class="mt-2 w-full rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+          class="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 disabled:opacity-50"
           onclick="floodrisk.recalc()" x-bind:disabled="loading">
-          <span x-show="!loading">Пересчитать</span>
+          <span x-show="!loading">▶ Пересчитать</span>
           <span x-show="loading">Считаю…</span>
         </button>
-      </section>
+      </div>
 
-      <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Агрегаты</h2>
-        <div id="aggregates" class="text-sm text-slate-400 italic">нет данных</div>
-      </section>
+      {# ── ГРУППА 2: РЕЗУЛЬТАТ (появляется после расчёта) ─────────────────────── #}
+      <div class="mt-5 space-y-4 border-t border-slate-200 pt-4">
+        <h2 class="text-[11px] font-bold uppercase tracking-wider text-slate-400">2 · Результат</h2>
 
-      <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Горячие точки риска</h2>
-        <button id="hotspots-btn"
-          class="w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
-          onclick="floodrisk.toggleHotspots()" x-bind:disabled="loading">Показать топ-зоны риска</button>
-        <div id="hotspots-list" class="mt-2 text-sm text-slate-400 italic">нет данных</div>
-        <p class="mt-1 text-xs text-slate-400">
-          Связные кластеры p≥0.5, ранжированы по площади×вероятности. Клик по строке/маркеру — зум к зоне.
-        </p>
-      </section>
+        <section>
+          <h3 class="mb-1 text-xs font-medium text-slate-600">Агрегаты</h3>
+          <div id="aggregates" class="text-sm text-slate-400 italic">появятся после расчёта</div>
+        </section>
 
-      <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Расчёт</h2>
-        <div id="run-meta" class="text-xs text-slate-400 italic">—</div>
-      </section>
+        <section>
+          <h3 class="mb-1 text-xs font-medium text-slate-600">Параметры расчёта</h3>
+          <div id="run-meta" class="text-xs text-slate-400 italic">—</div>
+        </section>
 
-      <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Слой</h2>
-        <label class="block text-xs text-slate-500">
-          Прозрачность наложения: <span class="font-mono" x-text="Math.round(opacity * 100) + '%'"></span>
-          <input type="range" min="0" max="1" step="0.05" class="mt-1 w-full"
-                 x-model.number="opacity"
-                 @input="floodrisk.setOpacity(opacity)" />
-        </label>
-      </section>
+        <section>
+          <label class="block text-xs text-slate-500">
+            Прозрачность наложения: <span class="font-mono" x-text="Math.round(opacity * 100) + '%'"></span>
+            <input type="range" min="0" max="1" step="0.05" class="mt-1 w-full"
+                   x-model.number="opacity"
+                   @input="floodrisk.setOpacity(opacity)" />
+          </label>
+        </section>
+      </div>
 
-      <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Валидация и сравнение</h2>
-        <button id="gt-btn"
-          class="w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
-          onclick="floodrisk.compareGroundTruth()" x-bind:disabled="loading">Реальность S1 ↔ предсказание (шторка)</button>
-        <button id="compare-btn"
-          class="mt-2 w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
-          onclick="floodrisk.compareModels()" x-bind:disabled="loading">U-Net ↔ baseline (шторка)</button>
-        <button id="compare-exit"
-          class="mt-2 hidden w-full rounded border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
-          onclick="floodrisk.exitCompare()">× Выйти из сравнения</button>
-        <div id="compare-table" class="mt-2"></div>
-        <p class="mt-1 text-xs text-slate-400">
-          <b>Реальность S1</b>: справа — что реально затопило в 2019 (Sentinel-1), слева — предсказание;
-          в таблице IoU/F1 на зоне. Доступно в валидированных зонах (Тулун; Канск — экспериментально).
-          <b>U-Net ↔ baseline</b>: численная суть вопроса M-2.
-        </p>
-      </section>
+      {# ── ГРУППА 3: АНАЛИЗ (сворачиваемая; инструменты активны после расчёта) ── #}
+      <div class="mt-5 border-t border-slate-200 pt-4">
+        <button class="flex w-full items-center justify-between"
+                @click="panels.analysis = !panels.analysis">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">3 · Анализ</span>
+          <span class="text-xs text-slate-400" x-text="panels.analysis ? '▾' : '▸'"></span>
+        </button>
+        <p x-show="!hasRun" class="mt-1 text-[11px] text-slate-400">Доступно после расчёта.</p>
 
-      <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Экспорт</h2>
-        <button id="export-btn"
-          class="w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
-          onclick="floodrisk.exportRun()" disabled>Экспорт ZIP</button>
-        <div id="export-result" class="mt-2 text-sm"></div>
-      </section>
+        <div x-show="panels.analysis" x-transition class="mt-3 space-y-4">
+          <section>
+            <h3 class="mb-1.5 text-xs font-medium text-slate-600">Горячие точки риска</h3>
+            <button id="hotspots-btn"
+              class="w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
+              onclick="floodrisk.toggleHotspots()" :disabled="loading || !hasRun">Показать топ-зоны риска</button>
+            <div id="hotspots-list" class="mt-2 text-sm text-slate-400 italic">нет данных</div>
+            <div x-data="{ h: false }" class="mt-1">
+              <button type="button" class="text-[11px] text-slate-400 hover:text-slate-600" @click="h = !h"
+                      x-text="h ? '− свернуть' : '? что это'"></button>
+              <p x-show="h" x-transition class="mt-1 text-xs text-slate-400">
+                Связные кластеры p≥0.5, ранжированы по площади×вероятности. Клик по строке/маркеру — зум к зоне.
+              </p>
+            </div>
+          </section>
 
-      <section>
-        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Режим</h2>
-        <div class="flex gap-2 text-sm">
-          <button class="flex-1 rounded border border-slate-300 px-2 py-1"
-            :class="mode === 'view' ? 'bg-slate-900 text-white' : 'hover:bg-slate-100'"
-            @click="floodrisk.setMode('view')">Просмотр</button>
-          <button class="flex-1 rounded border border-slate-300 px-2 py-1"
-            :class="mode === 'explain' ? 'bg-slate-900 text-white' : 'hover:bg-slate-100'"
-            @click="floodrisk.setMode('explain')">Объяснение</button>
+          <section>
+            <h3 class="mb-1.5 text-xs font-medium text-slate-600">Объяснение (важность признаков)</h3>
+            <div class="flex gap-2 text-sm">
+              <button class="flex-1 rounded border border-slate-300 px-2 py-1"
+                :class="mode === 'view' ? 'bg-slate-900 text-white' : 'hover:bg-slate-100'"
+                @click="floodrisk.setMode('view')">Просмотр</button>
+              <button class="flex-1 rounded border border-slate-300 px-2 py-1"
+                :class="mode === 'explain' ? 'bg-slate-900 text-white' : 'hover:bg-slate-100'"
+                @click="floodrisk.setMode('explain')">Объяснение</button>
+            </div>
+            <p class="mt-1 text-xs text-slate-400" x-show="mode === 'explain'">
+              Кликните по карте (перекрестие), чтобы увидеть важность признаков в точке.
+              Перетаскивание карты отключено — для перемещения вернитесь в «Просмотр».
+            </p>
+            <div id="explain-panel" class="mt-2" x-show="mode === 'explain'"></div>
+          </section>
+
+          <section>
+            <h3 class="mb-1.5 text-xs font-medium text-slate-600">Валидация и сравнение</h3>
+            <button id="gt-btn"
+              class="w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
+              onclick="floodrisk.compareGroundTruth()" :disabled="loading || !hasRun">Реальность S1 ↔ предсказание (шторка)</button>
+            <button id="compare-btn"
+              class="mt-2 w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
+              onclick="floodrisk.compareModels()" :disabled="loading || !hasRun">U-Net ↔ baseline (шторка)</button>
+            <button id="compare-exit"
+              class="mt-2 hidden w-full rounded border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
+              onclick="floodrisk.exitCompare()">× Выйти из сравнения</button>
+            <div id="compare-table" class="mt-2"></div>
+            <div x-data="{ h: false }" class="mt-1">
+              <button type="button" class="text-[11px] text-slate-400 hover:text-slate-600" @click="h = !h"
+                      x-text="h ? '− свернуть' : '? что показывает'"></button>
+              <p x-show="h" x-transition class="mt-1 text-xs text-slate-400">
+                <b>Реальность S1</b>: справа — что реально затопило в 2019 (Sentinel-1), слева — предсказание;
+                в таблице IoU/F1 на зоне. Доступно в валидированных зонах (Тулун; Канск — экспериментально).
+                <b>U-Net ↔ baseline</b>: численная суть вопроса M-2.
+              </p>
+            </div>
+          </section>
+
+          <section>
+            <h3 class="mb-1.5 text-xs font-medium text-slate-600">Экспорт</h3>
+            <button id="export-btn"
+              class="w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
+              onclick="floodrisk.exportRun()" :disabled="loading || !hasRun">Экспорт ZIP</button>
+            <div id="export-result" class="mt-2 text-sm"></div>
+          </section>
         </div>
-        <p class="mt-1 text-xs text-slate-400" x-show="mode === 'explain'">
-          Кликните по карте (перекрестие), чтобы увидеть важность признаков в точке.
-          Перетаскивание карты отключено — для перемещения вернитесь в «Просмотр».
-        </p>
-        <div id="explain-panel" class="mt-2" x-show="mode === 'explain'"></div>
-      </section>
+      </div>
     </aside>
 
     <main class="relative flex-1">
@@ -208,6 +262,7 @@
       <span class="flex items-center gap-1"><span class="inline-block h-3 w-6" style="background:#21918c"></span>0.5</span>
       <span class="flex items-center gap-1"><span class="inline-block h-3 w-6" style="background:#5ec962"></span>0.75</span>
       <span class="flex items-center gap-1"><span class="inline-block h-3 w-6" style="background:#fde725"></span>1.0</span>
+      <span class="ml-auto text-[10px] text-slate-400">картография © OpenStreetMap, Esri</span>
     </div>
   </footer>
 

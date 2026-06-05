@@ -6,7 +6,7 @@
   <div class="flex justify-between">
     <span>Источник</span>
     <span class="font-mono {{ 'text-amber-600' if metadata.source == 'online' else 'text-slate-700' }}">
-      {{ 'онлайн (эксперимент.)' if metadata.source == 'online' else 'мозаика (Тулун)' }}
+      {{ 'онлайн (эксперимент.)' if metadata.source == 'online' else 'мозаика (' ~ region_label ~ ')' }}
     </span>
   </div>
   <div class="flex justify-between">

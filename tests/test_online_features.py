@@ -69,8 +69,9 @@ def test_buffer_expands_bbox():
 
 
 def test_resolve_features_mosaic_in_coverage():
-    raw, _t, _crs, used = service._resolve_features(IN_COVERAGE, "v1", "mosaic")
+    raw, _t, _crs, used, region = service._resolve_features(IN_COVERAGE, "v1", "mosaic")
     assert used == "mosaic"
+    assert region == "v1"  # bbox внутри тулунской мозаики
     assert raw.shape[0] == 7
 
 
@@ -82,8 +83,9 @@ def test_resolve_features_auto_falls_back_to_online(monkeypatch):
         return np.zeros((7, 40, 40), dtype="float32"), "TRANSFORM", "EPSG:32637"
 
     monkeypatch.setattr(online, "build_feature_window", fake_build)
-    _raw, _t, crs, used = service._resolve_features(OUT_COVERAGE, "v1", "auto")
+    _raw, _t, crs, used, region = service._resolve_features(OUT_COVERAGE, "v1", "auto")
     assert used == "online"
+    assert region is None  # онлайн-сборка — не региональная мозаика
     assert crs == "EPSG:32637"
     assert called["bbox"] == OUT_COVERAGE
 
@@ -94,7 +96,7 @@ def test_resolve_features_auto_uses_mosaic_in_coverage(monkeypatch):
         raise AssertionError("online не должен вызываться в покрытии")
 
     monkeypatch.setattr(online, "build_feature_window", boom)
-    _raw, _t, _crs, used = service._resolve_features(IN_COVERAGE, "v1", "auto")
+    _raw, _t, _crs, used, _region = service._resolve_features(IN_COVERAGE, "v1", "auto")
     assert used == "mosaic"
 
 

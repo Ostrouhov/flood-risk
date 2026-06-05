@@ -122,7 +122,11 @@ def _load_norm_stats(config_path: str) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _resolve_features(bbox: list[float], dataset_version: str, source: str):
-    """Источник признаков → (raw[7,H,W], transform, crs, used_source).
+    """Источник признаков → (raw[7,H,W], transform, crs, used_source, feature_region).
+
+    ``feature_region`` — какой региональной мозаикой реально покрыт bbox (имя каталога
+    ``data/processed/<region>/``, напр. ``v1``/``kansk``), либо ``None`` для онлайна.
+    Нужно для честной подписи источника в UI (мозаика Тулуна vs Канска).
 
     source: 'mosaic' (готовая мозаика, валидированный регион), 'online' (сборка на
     лету для произвольного bbox, экспериментально) или 'auto' (мозаика в покрытии,
@@ -133,14 +137,15 @@ def _resolve_features(bbox: list[float], dataset_version: str, source: str):
         fdata, transform, crs = online.build_feature_window(
             bbox, cache_dir=settings.online_cache_dir
         )
-        return fdata, transform, crs, "online"
+        return fdata, transform, crs, "online", None
 
     # mosaic/auto: перебираем региональные мозаики (Тулун, Канск, …); первая покрывающая bbox.
     last_coverage: list[float] | None = None
     for stack in stacks:
         try:
             fdata, transform, crs, _ = feat.read_feature_window(bbox, stack)
-            return fdata, transform, crs, "mosaic"
+            region = stack.parent.parent.name  # data/processed/<region>/features/stack.tif
+            return fdata, transform, crs, "mosaic", region
         except feat.OutOfCoverage as exc:
             last_coverage = exc.coverage_wgs84
             continue
@@ -149,7 +154,7 @@ def _resolve_features(bbox: list[float], dataset_version: str, source: str):
         raise feat.OutOfCoverage(last_coverage or [])
     # auto → онлайн-сборка
     fdata, transform, crs = online.build_feature_window(bbox, cache_dir=settings.online_cache_dir)
-    return fdata, transform, crs, "online"
+    return fdata, transform, crs, "online", None
 
 
 def _resolve_model(session: Session, model_version: str):
@@ -254,7 +259,9 @@ def predict(
         raise UnknownScenario([s.scenario_id for s in list_scenarios(session)])
     rec = _resolve_model(session, model_version)
 
-    fdata, transform, crs, used_source = _resolve_features(bbox, rec.dataset_version, source)
+    fdata, transform, crs, used_source, feature_region = _resolve_features(
+        bbox, rec.dataset_version, source
+    )
 
     mean, std = _load_norm_stats(rec.config_path)
     fnorm = ft.transform(fdata, mean, std)
@@ -283,6 +290,7 @@ def predict(
         "scenario_id": scenario_id,
         "bbox": bbox,
         "source": used_source,
+        "feature_region": feature_region,
         "experimental": used_source == "online",
         "run_timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "latency_ms": latency_ms,
