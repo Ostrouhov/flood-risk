@@ -57,6 +57,41 @@ def compute_all(y_true: np.ndarray, prob: np.ndarray) -> dict[str, float]:
     return {name: fn(y_true, prob) for name, fn in METRIC_FNS.items()}
 
 
+def reliability_table(
+    y_true: np.ndarray, prob: np.ndarray, *, n_bins: int = 10
+) -> list[dict[str, float]]:
+    """Таблица калибровки (reliability): по бинам предсказанной вероятности.
+
+    Делит [0,1] на ``n_bins`` равных бинов; для каждого непустого бина — доля пула,
+    средняя предсказанная вероятность и наблюдаемая частота положительного класса.
+    Идеальная калибровка: mean_pred ≈ obs_freq. Дополняет Brier (агрегат) разбивкой.
+
+    Возвращает список dict: {bin_lo, bin_hi, count, frac, mean_pred, obs_freq}.
+    """
+    y = np.asarray(y_true).reshape(-1) > 0.5
+    p = np.asarray(prob, dtype="float64").reshape(-1)
+    total = p.shape[0]
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    rows: list[dict[str, float]] = []
+    for i in range(n_bins):
+        lo, hi = edges[i], edges[i + 1]
+        sel = (p >= lo) & (p < hi) if i < n_bins - 1 else (p >= lo) & (p <= hi)
+        count = int(np.count_nonzero(sel))
+        if count == 0:
+            continue
+        rows.append(
+            {
+                "bin_lo": round(float(lo), 2),
+                "bin_hi": round(float(hi), 2),
+                "count": count,
+                "frac": round(count / total, 4) if total else 0.0,
+                "mean_pred": round(float(p[sel].mean()), 4),
+                "obs_freq": round(float(y[sel].mean()), 4),
+            }
+        )
+    return rows
+
+
 def bootstrap_ci(
     per_tile_true: list[np.ndarray],
     per_tile_prob: list[np.ndarray],

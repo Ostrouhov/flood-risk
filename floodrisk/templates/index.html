@@ -112,6 +112,17 @@
       </section>
 
       <section>
+        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Горячие точки риска</h2>
+        <button id="hotspots-btn"
+          class="w-full rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
+          onclick="floodrisk.toggleHotspots()" x-bind:disabled="loading">Показать топ-зоны риска</button>
+        <div id="hotspots-list" class="mt-2 text-sm text-slate-400 italic">нет данных</div>
+        <p class="mt-1 text-xs text-slate-400">
+          Связные кластеры p≥0.5, ранжированы по площади×вероятности. Клик по строке/маркеру — зум к зоне.
+        </p>
+      </section>
+
+      <section>
         <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Расчёт</h2>
         <div id="run-meta" class="text-xs text-slate-400 italic">—</div>
       </section>

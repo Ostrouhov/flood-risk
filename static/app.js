@@ -66,6 +66,8 @@
     currentOverlay: null,
     currentRunId: null,
     attributionOverlay: null,
+    hotspotLayer: null,
+    hotspotData: null,
     mode: "view",
     opacity: 0.7,
     zoneRect: null,
@@ -455,6 +457,7 @@
     opts = opts || {};
     const labels = opts.labels || ["", ""];
     exitCompare(true);
+    clearHotspots(); // маркеры hotspot устаревают/мешают шторке
     if (state.currentOverlay) {
       map.removeLayer(state.currentOverlay);
       state.currentOverlay = null;
@@ -561,6 +564,92 @@
       .finally(() => window.dispatchEvent(new Event("predict-end")));
   };
 
+  // ── Горячие точки риска (B/этап B): топ-N кластеров p≥0.5 + список с зумом ───
+  function clearHotspots() {
+    if (state.hotspotLayer) {
+      map.removeLayer(state.hotspotLayer);
+      state.hotspotLayer = null;
+    }
+    state.hotspotData = null;
+    const list = document.getElementById("hotspots-list");
+    if (list) {
+      list.className = "mt-2 text-sm text-slate-400 italic";
+      list.innerHTML = "нет данных";
+    }
+    const btn = document.getElementById("hotspots-btn");
+    if (btn) btn.textContent = "Показать топ-зоны риска";
+  }
+
+  function renderHotspots(res) {
+    clearHotspots();
+    state.hotspotData = res.hotspots;
+    const maxArea = Math.max.apply(null, res.hotspots.map((h) => h.area_km2)) || 1;
+    const group = L.layerGroup();
+    res.hotspots.forEach((h, i) => {
+      const radius = 8 + 14 * Math.sqrt(h.area_km2 / maxArea);
+      const m = L.circleMarker([h.lat, h.lon], {
+        radius,
+        color: "#b91c1c",
+        weight: 2,
+        fillColor: "#ef4444",
+        fillOpacity: 0.5,
+      });
+      m.bindTooltip(String(h.rank), { permanent: true, direction: "center" });
+      m.on("click", () => state.zoomToHotspot(i));
+      group.addLayer(m);
+    });
+    group.addTo(map);
+    state.hotspotLayer = group;
+
+    const list = document.getElementById("hotspots-list");
+    if (list) {
+      list.className = "mt-2 text-sm space-y-1";
+      list.innerHTML = res.hotspots
+        .map(
+          (h, i) =>
+            `<button class="flex w-full items-center justify-between rounded px-1 py-0.5 text-left hover:bg-slate-100" onclick="floodrisk.zoomToHotspot(${i})">` +
+            `<span><span class="font-mono text-red-700">#${h.rank}</span> ${h.area_km2.toFixed(2)} км²</span>` +
+            `<span class="font-mono text-slate-500">p̄ ${h.mean_p.toFixed(2)}</span></button>`,
+        )
+        .join("");
+    }
+    const btn = document.getElementById("hotspots-btn");
+    if (btn) btn.textContent = "Скрыть точки";
+  }
+
+  state.zoomToHotspot = function (i) {
+    const h = state.hotspotData && state.hotspotData[i];
+    if (!h) return;
+    map.fitBounds(bbox2bounds(h.bounds_wgs84), { maxZoom: 14 });
+    L.popup()
+      .setLatLng([h.lat, h.lon])
+      .setContent(
+        `<b>#${h.rank}</b> зона риска<br>${h.area_km2.toFixed(2)} км² · p̄ ${h.mean_p.toFixed(2)} · max ${h.max_p.toFixed(2)}`,
+      )
+      .openOn(map);
+  };
+
+  state.toggleHotspots = function () {
+    if (state.hotspotLayer) {
+      clearHotspots(); // повторный клик — скрыть
+      return;
+    }
+    if (!state.currentRunId) {
+      state.toast("Сначала постройте карту", "error");
+      return;
+    }
+    fetch(`/api/runs/${state.currentRunId}/hotspots`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((res) => {
+        if (!res.available || !res.hotspots.length) {
+          state.toast("Кластеры риска не найдены (p≥0.5)", "error");
+          return;
+        }
+        renderHotspots(res);
+      })
+      .catch(() => state.toast("Не удалось получить горячие точки", "error"));
+  };
+
   state.exportRun = function () {
     if (!state.currentRunId) return;
     htmx.ajax("POST", "/ui/export", {
@@ -628,6 +717,7 @@
         map.removeLayer(state.currentOverlay);
         state.currentOverlay = null;
       }
+      clearHotspots(); // новое предсказание — прежние горячие точки неактуальны
       if (el.dataset.error) {
         // Ошибка predict (predict_error.html) — продублируем тостом (сайдбар легко не заметить).
         state.currentPrediction = null;

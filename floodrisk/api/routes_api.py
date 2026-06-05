@@ -14,6 +14,7 @@ from floodrisk.api.schemas import (
     ExportResponse,
     GroundTruthResponse,
     HealthResponse,
+    HotspotsResponse,
     ModelVersionOut,
     PointResponse,
     PredictRequest,
@@ -165,6 +166,26 @@ def get_run_groundtruth(run_id: str, threshold: float = 0.5) -> GroundTruthRespo
         threshold=result["threshold"],
         experimental=result.get("experimental", False),
         regions=result.get("regions"),
+    )
+
+
+@router.get("/runs/{run_id}/hotspots", response_model=HotspotsResponse)
+def get_run_hotspots(run_id: str, threshold: float = 0.5, top_n: int = 5) -> HotspotsResponse:
+    """Топ-N кластеров высокого риска по растру запуска (связные компоненты p≥threshold).
+
+    «Actionable»-слой: куда смотреть в первую очередь. Read-only над prediction.tif.
+    """
+    from floodrisk.inference import hotspots as hs
+
+    try:
+        result = hs.find_hotspots(run_id, threshold=threshold, top_n=top_n)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="run_not_found") from None
+    return HotspotsResponse(
+        available=result["count"] > 0,
+        threshold=result["threshold"],
+        count=result["count"],
+        hotspots=result["hotspots"],
     )
 
 

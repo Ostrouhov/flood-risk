@@ -105,3 +105,16 @@ class RunOut(BaseModel):
     aggregates: dict | None = None
     latency_ms: int | None = None
     status: str
+
+
+class HotspotsResponse(BaseModel):
+    """Топ-N кластеров высокого риска по растру запуска (связные компоненты p≥threshold).
+
+    Каждый hotspot: {rank, lat, lon, area_km2, mean_p, max_p, bounds_wgs84:[S,W,N,E]}.
+    ``count`` — всего кластеров выше фильтра площади (может быть > len(hotspots)).
+    """
+
+    available: bool
+    threshold: float = 0.5
+    count: int = 0
+    hotspots: list[dict] = []

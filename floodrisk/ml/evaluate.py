@@ -186,6 +186,22 @@ def run_eval(unet_config: str, baseline_config: str, out_path: str) -> int:
         )
     lines.append("")
 
+    lines.append("\n## Калибровка (reliability)\n")
+    lines.append(
+        "По бинам предсказанной вероятности: средняя предсказанная p против наблюдаемой "
+        "частоты затопления. Идеал — `mean_pred ≈ obs_freq` (детализирует агрегатный Brier).\n"
+    )
+    for name, yt_p, pp_p in (("U-Net", ut_pool, up_pool), ("baseline", bt_pool, bp_pool)):
+        lines.append(f"\n**{name}**\n")
+        lines.append("| бин p | доля пула | mean_pred | obs_freq |")
+        lines.append("|---|---|---|---|")
+        for r in M.reliability_table(yt_p, pp_p, n_bins=10):
+            lines.append(
+                f"| [{r['bin_lo']:.1f}, {r['bin_hi']:.1f}) | {r['frac'] * 100:.2f}% | "
+                f"{r['mean_pred']:.4f} | {r['obs_freq']:.4f} |"
+            )
+        lines.append("")
+
     lines.append("\n## Критерий M-2 (§15)\n")
     lines.append("U-Net превосходит baseline по **IoU и F1 и PR-AUC**, CI 95% не пересекаются.\n")
     lines.append("\n| Метрика | U-Net > baseline | CI непересек. | M-2 по метрике |")
